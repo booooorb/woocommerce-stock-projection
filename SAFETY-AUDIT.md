@@ -1,6 +1,6 @@
 # Safety audit: VeryShop Product Analysis 1.5.0
 
-**Historical audit:** The original sections below record version 1.5.0. The 1.6.0 update at the end records the latest preservation checks. VERIFICATION.md records feature validation; the original release identity identifies the audited 1.5.0 archive.
+**Historical audit:** The original sections below record version 1.5.0. The 1.7.0 update at the end records the latest preservation checks. VERIFICATION.md records feature validation; the original release identity identifies the audited 1.5.0 archive.
 
 Reviewed on October 26, 2026. **365 checks passed.** This is a code review and isolated test result, not a guarantee for an untested production website.
 
@@ -78,3 +78,16 @@ Order details require both analytics and order-edit access. They expose order nu
 ## Customer-name display update 1.6.1
 
 At the merchant’s request, the protected order-hover payload now adds the order’s stored billing full name. Earlier statements about no customer details describe 1.6.0. Access still requires analytics access and order-edit capability; email, address, phone and customer ID remain excluded. Names are escaped in the hover and held only in its bounded session cache, without copying names into analytics tables or graph preloads. The implementation uses an existing order getter and adds no source writes or schema changes. The HPOS/legacy integration suites and JavaScript suites passed again (319 checks), including contact-field exclusion, name fallback, read-only behavior and permission checks. The four-profile preservation audit above was not rerun for this read-only field addition.
+
+
+## Confirmed restock planning update 1.7.0 — October 27, 2026
+
+All four preservation profiles were rerun successfully: 35 assertions each (140 total), current WordPress 7.1.3 / WooCommerce 11.2.1 / PHP 8.3.33 and minimum WordPress 6.6.10 / WooCommerce 9.0.0 / PHP 8.0.30, each with HPOS and legacy orders. The planning request in the protected-store SQL audit now includes quantity and explicit confirmation. Existing authoritative store records, WooCommerce settings and protected files retained their hashes, and no protected-table writes or WooCommerce product-save events occurred during planning or the audited analytics operations.
+
+The existing `vpa_planning_<stock-owner-id>` option additionally stores the purchased quantity, confirmed state, timestamp, and stock-at-confirmation snapshot. An unconfirmed preview exists only in the dashboard session; it triggers no planning save. Confirmation and Clear plan update only the plugin option and plugin cache revision. There is no new table migration and no incoming stock adjustment, product save or order mutation. The saved plan is a hypothetical projection, not a supplier purchase or inventory receipt.
+
+Confirmed plans immediately suppress the stock pool's reorder, low-stock and out-of-stock analytics warnings and stock-email eligibility until the user clears the plan. Confirmation remains acknowledged after its entered arrival date. This is intentional user-requested behavior; the plugin does not automatically confirm delivery, receive units, expire the acknowledgement or order stock. Legacy date-only plans retain a date-bounded acknowledgement, without a fabricated quantity.
+
+The 290 functional integration assertions and 74 JavaScript assertions also passed. New checks cover invalid quantities/dates, keeping an existing plan after invalid input, no stock changes on confirmation/clear, shared stock, warning/email suppression at zero inventory, projected arrival/coverage, overdue rendering and offset hover geometry. Browser checks verified preview, confirmation, persistence after reload and clearing with real inventory unchanged. Test plans were cleared afterward. All tests remain isolated Playground PHP/SQLite evidence; native production MySQL/MariaDB, live checkout with the merchant's extensions, and inbox delivery remain untested.
+
+Release 1.7.0 archive: `dist/veryshop-product-analysis.zip`; 12 production files; SHA-256 `b6fb14f8c0a2b604d9761ecfc6c828b2896c683447204610a5c01de13d09adf7`.

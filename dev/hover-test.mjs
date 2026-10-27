@@ -55,9 +55,9 @@ passed('Mismatched order-detail replies are rejected and offer retry');
 h = fixture();
 const escaped = h.historyContent({ kind: 'estimated', page: 1, events: [{ date: '2026-10-27', units: 0.125, order: { number: '<img onerror=alert(1)>', customer_name: '<img src=x onerror=alert(1)>', url: 'javascript:alert(1)', status: '<script>x</script>' } }] });
 assert.doesNotMatch(escaped, /<img|<script|href="javascript:/);
-assert.match(escaped, /0.125 units ordered/); assert.match(escaped, /estimated interval/);
+assert.match(escaped, /0.125 units ordered/); assert.doesNotMatch(escaped, /Orders contributing|Historical restocks|Recorded changes in/);
 assert.match(escaped, /Customer: &lt;img/);
-passed('Order labels and URLs are escaped, fractional quantities survive and estimated history stays labelled');
+passed('Order details are escaped and preserve quantities without explanatory hover text');
 
 h = fixture();
 h.state.detail.stock_history.recorded = Array.from({ length: 27 }, (_, i) => ({ id: i + 1, time: 1793050000 + i * 10, stock: 100 - i }));

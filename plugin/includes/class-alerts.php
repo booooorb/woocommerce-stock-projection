@@ -43,7 +43,7 @@ final class Alerts {
         $rows = Reports::rows( $settings['alert_period'] )['rows'];
         $candidates = array();
         foreach ( $rows as $row ) {
-            if ( isset( $candidates[ $row['stock_owner_id'] ] ) || null === $row['stock'] ) { continue; }
+            if ( isset( $candidates[ $row['stock_owner_id'] ] ) || null === $row['stock'] || $row['planning']['on_order'] ) { continue; }
             $reason = '';
             if ( $row['stock'] <= 0 ) {
                 $reason = 'out';

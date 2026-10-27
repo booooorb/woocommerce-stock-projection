@@ -68,10 +68,21 @@ final class Reports {
         $stored = get_option( 'vpa_planning_' . $owner->get_id(), null );
         // Read older plugin metadata without saving the WooCommerce product again.
         $arrival = is_array( $stored ) ? (string) ( $stored['arrival'] ?? '' ) : (string) $owner->get_meta( '_vpa_arrival', true );
+        $parsed = \DateTimeImmutable::createFromFormat( '!Y-m-d', $arrival, wp_timezone() );
+        $valid_date = $parsed && $parsed->format( 'Y-m-d' ) === $arrival;
+        $quantity = is_array( $stored ) && is_numeric( $stored['quantity'] ?? null ) ? (float) $stored['quantity'] : 0;
+        $quantity = is_finite( $quantity ) && $quantity > 0 && $quantity <= 1000000000 ? $quantity : 0;
+        $confirmed = is_array( $stored ) && true === ( $stored['confirmed'] ?? false ) && $quantity > 0 && $valid_date;
+        $legacy = $valid_date && ( ! is_array( $stored ) || ! array_key_exists( 'quantity', $stored ) ) && $arrival >= wp_date( 'Y-m-d' );
+        $stock_at_order = is_array( $stored ) && is_numeric( $stored['stock_at_order'] ?? null ) ? (float) $stored['stock_at_order'] : null;
         return array(
             'reorder_days' => (int) $settings['reorder_days'],
             'arrival' => $arrival,
-            'on_order' => $arrival && $arrival >= wp_date( 'Y-m-d' ),
+            'quantity' => $quantity, 'confirmed' => $confirmed,
+            'placed_at' => $confirmed ? max( 0, (int) ( $stored['placed_at'] ?? 0 ) ) : 0,
+            'arrival_at' => $valid_date ? $parsed->getTimestamp() : null,
+            'stock_at_order' => $stock_at_order,
+            'on_order' => $confirmed || $legacy,
         );
     }
 
@@ -116,12 +127,15 @@ final class Reports {
             $model = $use_stock ? $stock_models[ $owner_id ] : Model::from_sums( $window['days'], (float) $sums['total'], (float) $sums['sum_y'], (float) $sums['sum_xy'] );
             $stock = $owner->managing_stock() && null !== $owner->get_stock_quantity() ? (float) $owner->get_stock_quantity() : null;
             $planning = self::planning( $owner );
+            $planning['projection'] = $planning['confirmed'] ? Model::restock( $planning['stock_at_order'], $model['rate'], $planning['quantity'], $planning['placed_at'], (int) $planning['arrival_at'] ) : null;
             $inventory = Model::inventory( $stock, $model['rate'], $planning['reorder_days'] );
             $low_amount = $owner->get_low_stock_amount();
             $low_amount = '' === $low_amount ? (float) get_option( 'woocommerce_notify_low_stock_amount', 2 ) : (float) $low_amount;
             $status = 'healthy';
             if ( null === $stock ) {
                 $status = 'untracked';
+            } elseif ( $planning['on_order'] ) {
+                $status = 'ordered';
             } elseif ( $stock <= 0 ) {
                 $status = 'out';
             } elseif ( null !== $inventory['reorder_in'] && $inventory['reorder_in'] <= 0 ) {
@@ -148,7 +162,7 @@ final class Reports {
                 'rate_source' => $use_stock ? 'stock_changes' : 'orders',
                 'rate_history_days' => $model['days'],
                 'status' => $status,
-                'low_stock' => null !== $stock && $stock <= $low_amount,
+                'low_stock' => ! $planning['on_order'] && null !== $stock && $stock <= $low_amount,
                 'planning' => $planning,
                 'stockout_date' => self::date_offset( $inventory['days_remaining'] ),
                 'reorder_date' => self::date_offset( $inventory['reorder_in'] ),

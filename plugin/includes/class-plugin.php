@@ -304,7 +304,20 @@ final class Plugin {
             return new \WP_Error( 'vpa_invalid', 'Expected arrival must be a valid YYYY-MM-DD date.', array( 'status' => 400 ) );
         }
         $owner = Reports::stock_owner( $product );
-        if ( isset( $body['arrival'] ) ) {
+        if ( array_key_exists( 'clear', $body ) ) {
+            if ( true !== $body['clear'] ) { return new \WP_Error( 'vpa_invalid', 'Clear must be true.', array( 'status' => 400 ) ); }
+            update_option( 'vpa_planning_' . $owner->get_id(), array( 'arrival' => '', 'quantity' => 0, 'confirmed' => false ), false );
+        } elseif ( array_key_exists( 'quantity', $body ) || array_key_exists( 'confirmed', $body ) ) {
+            $quantity = $body['quantity'] ?? null;
+            if ( is_bool( $quantity ) || ! ( is_int( $quantity ) || is_float( $quantity ) ) || ! is_finite( (float) $quantity ) || $quantity <= 0 || $quantity > 1000000000 || abs( round( $quantity, 4 ) - $quantity ) > 0.00000001 ) {
+                return new \WP_Error( 'vpa_invalid', 'Enter a positive quantity with up to four decimal places.', array( 'status' => 400 ) );
+            }
+            if ( true !== ( $body['confirmed'] ?? false ) || empty( $body['arrival'] ) || $body['arrival'] < wp_date( 'Y-m-d' ) ) {
+                return new \WP_Error( 'vpa_invalid', 'Confirm the order with an arrival date of today or later.', array( 'status' => 400 ) );
+            }
+            update_option( 'vpa_planning_' . $owner->get_id(), array( 'arrival' => $body['arrival'], 'quantity' => (float) $quantity, 'confirmed' => true,
+                'placed_at' => time(), 'stock_at_order' => $owner->managing_stock() && null !== $owner->get_stock_quantity() ? (float) $owner->get_stock_quantity() : null ), false );
+        } elseif ( isset( $body['arrival'] ) ) {
             update_option( 'vpa_planning_' . $owner->get_id(), array( 'arrival' => $body['arrival'] ), false );
         }
         Repository::invalidate();

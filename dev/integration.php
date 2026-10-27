@@ -316,6 +316,7 @@ try {
     vpa_check( ! as_has_scheduled_action( 'vpa_email_checks', array(), Plugin::GROUP ), 'Deactivation removes recurring email jobs' );
     Plugin::init();
     require '/internal/vpa-dev/order-history.php';
+    require '/internal/vpa-dev/restock.php';
     echo "\nALL TESTS PASSED ($checks checks)\n";
     echo 'Runtime: WordPress ' . get_bloginfo( 'version' ) . ' / WooCommerce ' . WC_VERSION . ' / PHP ' . PHP_VERSION . "\n";
     echo 'Order storage: ' . ( \Automattic\WooCommerce\Utilities\OrderUtil::custom_orders_table_usage_is_enabled() ? 'HPOS' : 'legacy' ) . "\n";

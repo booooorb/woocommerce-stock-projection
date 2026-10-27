@@ -61,6 +61,19 @@
 .vpa-stock-heading { display: flex; align-items: start; justify-content: space-between; gap: 14px; margin-bottom: 10px; }
 .vpa-stock-heading h2 { font-size: 16px; margin-bottom: 3px; }
 .vpa-stock-heading > div:first-child { min-width: 0; }
+.vpa-stock-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; justify-content: flex-end; }
+.vpa .vpa-plan-button { background: #2271b1; border-color: #2271b1; color: white; padding: 8px 12px; font-size: 12px; min-height: 36px; }
+.vpa .vpa-plan-button:hover { background: #185c92; border-color: #185c92; }
+.vpa-inline-planning { display: flex; align-items: end; gap: 10px; flex-wrap: wrap; padding: 12px 0; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.vpa-inline-planning label { display: flex; flex: 1 1 130px; flex-direction: column; gap: 5px; min-width: 0; }
+.vpa-inline-planning input { width: 100%; min-height: 36px; padding: 6px 8px; border: 1px solid #b8cbdc; border-radius: 4px; margin: 0; }
+.vpa-planning-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.vpa-restock-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; font-size: 11px; padding: 8px 0; }
+.vpa-restock-confirmed { color: #2271b1; }
+.vpa-restock-preview { color: #5a94be; }
+.vpa-line-key.vpa-restock-key { border-color: #2271b1; border-top-style: dotted; }
+.vpa-svg-overdue { fill: #a33e34; }
+.vpa-quantity-ordered strong, .vpa-quantity-ordered small { color: #2271b1; }
 .vpa-stock-heading .vpa-muted { font-size: 10px; }
 .vpa-current-stock { display: flex; flex-direction: column; align-items: end; flex: 0 0 auto; }
 .vpa-current-stock strong { font-size: 27px; font-weight: 550; line-height: 1.05; letter-spacing: -.7px; font-variant-numeric: tabular-nums; }
@@ -73,13 +86,15 @@
 .vpa-segmented button[aria-pressed="true"] { color: #245d40; border-color: var(--green); font-weight: 600; }
 .vpa-graph { width: 100%; min-width: 0; position: relative; }
 .vpa-history-target { stroke: transparent; stroke-width: 1; fill: transparent; pointer-events: all; cursor: pointer; outline: none; }
-.vpa-history-target:hover, .vpa-history-target:focus-visible { stroke: #176b5050; fill: #176b501a; }
-.vpa-history-popover { position: absolute; z-index: 20; width: min(320px, calc(100% - 16px)); max-height: 280px; overflow: auto; background: #fff; border: 1px solid #cad9cf; border-radius: 6px; padding: 12px; box-shadow: 0 6px 24px #163e3326; font-size: 11px; }
-.vpa-history-popover-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.vpa-history-target:hover, .vpa-history-target:focus-visible, .vpa-history-target.vpa-history-selected { stroke: #176b5090; fill: #176b5030; }
+.vpa-history-popover { position: absolute; z-index: 20; width: min(280px, calc(100% - 16px)); max-height: 280px; overflow: auto; background: #fff; border: 1px solid #cad9cf; border-radius: 6px; padding: 12px; box-shadow: 0 6px 24px #163e3326; font-size: 11px; }
+.vpa-history-popover.vpa-history-docked { position: relative; left: auto !important; top: auto !important; margin: 8px auto; }
+.vpa-history-popover-heading { position: absolute; top: 6px; right: 6px; }
 .vpa-history-popover-heading .vpa-button { min-height: 24px; padding: 0 6px; }
 .vpa-history-content p { margin: 6px 0; color: var(--muted); }
 .vpa-history-content ul { list-style: none; margin: 0; padding: 0; }
 .vpa-history-content li { display: flex; flex-direction: column; gap: 3px; padding: 9px 0; border-top: 1px solid var(--line); }
+.vpa-history-content li:first-child { padding-top: 0; padding-right: 24px; border-top: 0; }
 .vpa-history-content small { color: var(--muted); }
 .vpa-history-content a { color: #176b50; text-decoration: underline; }
 .vpa-history-content > .vpa-button { margin: 6px 6px 0 0; }
@@ -110,10 +125,8 @@
 .vpa-inline-facts dd { margin: 0; font-size: 12px; color: #314c3a; font-weight: 550; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .vpa-fact-overdue dd { color: var(--danger); }
 .vpa-detail-actions { position: relative; border-top: 1px solid #edf0ed; margin-top: auto; }
-.vpa-detail-actions > .vpa-button { position: absolute; top: 5px; right: 0; padding: 3px 6px; min-height: 25px; font-size: 10px; border-color: transparent; background: transparent; color: #637a6b; }
-.vpa-detail-actions > .vpa-button:hover { background: #f0f5f1; }
 .vpa-chart-data { font-size: 11px; color: #657d6c; }
-.vpa-chart-data summary { cursor: pointer; padding: 10px 0; width: fit-content; max-width: calc(100% - 115px); }
+.vpa-chart-data summary { cursor: pointer; padding: 10px 0; width: fit-content; max-width: 100%; }
 .vpa-chart-data p { margin: 6px 0 10px; font-size: 11px; line-height: 1.7; }
 .vpa-chart-data .vpa-scroll { margin-bottom: 12px; }
 .vpa-scroll { max-height: 280px; overflow: auto; }
@@ -200,6 +213,8 @@
   .vpa-detail { margin-bottom: 12px; }
   .vpa-chart-panel { padding: 12px 10px 0; min-height: 0; }
   .vpa-stock-heading h2 { font-size: 14px; }
+  .vpa-stock-heading { flex-wrap: wrap; }
+  .vpa-stock-actions { width: 100%; justify-content: space-between; }
   .vpa-current-stock strong { font-size: 24px; }
   .vpa-chart-caption { gap: 6px; }
   .vpa-legend { gap: 8px; }
@@ -210,3 +225,8 @@
   .vpa-settings-section { padding: 16px; }
   .vpa-sync > span:nth-child(2) { margin-left: 0; }
 }
+
+.vpa-stockout-acknowledged .vpa-marker-dot { fill: #7d8882; }
+
+.vpa-overdue-marker:not(.vpa-tooltip-dismissed):hover .vpa-overdue-badge,
+.vpa-overdue-marker:not(.vpa-tooltip-dismissed):focus-visible .vpa-overdue-badge { visibility: hidden; }

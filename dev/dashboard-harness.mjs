@@ -7,7 +7,7 @@ const adminSource = await readFile(new URL('../plugin/assets/admin.js', import.m
 
 // Exercise the shipped dashboard controller, with rendering and the network replaced
 // by deterministic fixtures. No browser, real store or live stock writes are used.
-export function dashboard() {
+export function dashboard({ timezone = 'UTC' } = {}) {
   let now = 0, timerId = 0;
   const timers = new Map(), handlers = new Map(), calls = [];
   const on = name => (type, callback) => {
@@ -21,7 +21,7 @@ export function dashboard() {
   const connection = { saveData: false, effectiveType: '4g', addEventListener: on('connection') };
   const navigator = { connection, onLine: true };
   const document = { visibilityState: 'visible', addEventListener: on('document'), getElementById: id => nodes[id] || null };
-  const window = { VeryShopAnalysis: { api: '/api/', nonce: 'test', locale: 'en', timezone: 'UTC' }, addEventListener: on('window') };
+  const window = { VeryShopAnalysis: { api: '/api/', nonce: 'test', locale: 'en', timezone }, addEventListener: on('window') };
   const product = id => ({ id, name: `Product ${id}`, sku: `SKU-${id}`, rank: id, stock: id * 10, rate: id, days_remaining: 10, reorder_in: 3, reorder_point: id * 7, status: 'good', planning: { reorder_days: 7, on_order: false } });
   const detail = (id, period = '90') => ({ product: product(id), period, revision: 'a', window: { start: '2026-07-29', end: '2026-10-26', days: 90 }, stock_history: { today: 1793059200, start: 1785283200, recorded_from: 1785283200, recorded: [{ time: 1785283200, stock: id * 100 }, { time: 1793059200, stock: id * 10 }], reconstructed: [] } });
   const reports = page => ({ page, pages: 2, total: 4, window: { start: '2026-07-29', end: '2026-10-26' }, rows: (page === 1 ? [1, 2] : [3, 4]).map(product), sync: { complete: true }, revision: 'a' });
@@ -55,7 +55,7 @@ export function dashboard() {
   };
   vm.runInNewContext(bufferSource, scope);
   const instrumented = adminSource.replace('  init();\n})();', `  render = () => { root.innerHTML = overview(); snapshots.push(root.innerHTML); };
-  globalThis.controller = { state, buffer, startPreload, checkFreshness, pausePreload, loadDetail, loadReport, refreshData, overview, detailView, drawChart, historySegments, historyContent, showHistoryHover, scheduleHistoryHover, closeHistoryHover, historyCache };
+  globalThis.controller = { state, buffer, startPreload, checkFreshness, pausePreload, loadDetail, loadReport, refreshData, overview, detailView, drawChart, historySegments, historyContent, showHistoryHover, scheduleHistoryHover, closeHistoryHover, historyCache, historyPopoverPosition, buildRestockProjection, restockPoints, restockProjection, chartHorizon, overdueInfo, planningForm, storeDateTimestamp };
 })();`);
   assert.notEqual(instrumented, adminSource, 'Dashboard test hook must match the entry point');
   vm.runInNewContext(instrumented, scope);

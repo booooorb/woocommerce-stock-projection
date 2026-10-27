@@ -54,4 +54,17 @@ final class Model {
             'reorder_point'  => $rate * $reorder_days,
         );
     }
+
+    public static function restock( ?float $stock, float $rate, float $quantity, int $placed_at, int $arrival_at ): ?array {
+        if ( null === $stock || ! is_finite( $stock ) || ! is_finite( $rate ) || ! is_finite( $quantity ) || $quantity <= 0 || $placed_at <= 0 ) { return null; }
+        $rate = max( 0, $rate );
+        $arrival_at = max( $placed_at, $arrival_at );
+        $days = ( $arrival_at - $placed_at ) / 86400;
+        $before = $stock <= 0 ? $stock : max( 0, $stock - $rate * $days );
+        $after = $before + $quantity;
+        $coverage = $after <= 0 ? 0.0 : ( $rate > 0.00000001 ? $after / $rate : null );
+        $stockout_at = null !== $coverage && $coverage > 0 && $coverage <= 36500 ? $arrival_at + (int) round( $coverage * 86400 ) : null;
+        return array( 'placed_at' => $placed_at, 'arrival_at' => $arrival_at, 'stock_at_order' => $stock, 'before' => $before, 'after' => $after,
+            'quantity' => $quantity, 'rate' => $rate, 'coverage_days' => $coverage, 'stockout_at' => $stockout_at );
+    }
 }

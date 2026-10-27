@@ -100,7 +100,7 @@ try {
         vpas_request( 'POST', 'settings', array( 'reorder_days' => 45, 'email_frequency_days' => 7 ) );
         $save_events = 0; $save_watch = static function () use ( &$save_events ) { $save_events++; };
         add_action( 'woocommerce_before_product_object_save', $save_watch );
-        $planning = vpas_request( 'POST', 'products/' . $ids['variant'] . '/planning', array( 'arrival' => wp_date( 'Y-m-d', time() + WEEK_IN_SECONDS ) ) );
+        $planning = vpas_request( 'POST', 'products/' . $ids['variant'] . '/planning', array( 'arrival' => wp_date( 'Y-m-d', time() + WEEK_IN_SECONDS ), 'quantity' => 100, 'confirmed' => true ) );
         remove_action( 'woocommerce_before_product_object_save', $save_watch );
         vpas_check( 200 === $planning->get_status() && 0 === $save_events && Reports::planning( wc_get_product( $ids['parent'] ) )['on_order'], 'Restock planning writes plugin-only storage and triggers no WooCommerce product saves' );
         Repository::restart(); do { Repository::import_batch(); } while ( ! Repository::state()['complete'] );
