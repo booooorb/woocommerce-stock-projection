@@ -5,10 +5,11 @@
   if (!root || !window.VeryShopAnalysis) return;
   const cfg = window.VeryShopAnalysis;
   const periods = [['30', 'Last month'], ['90', '3 months'], ['180', '6 months'], ['365', 'Year'], ['all', 'All time']];
-  const state = { period: '90', search: '', page: 1, report: null, detail: null, selected: null, detailTarget: null, detailError: '', tab: 'overview', horizon: 30, detailLoading: false, loading: true, indexing: false, busy: false, settings: null, settingsDraft: null, reorderDraft: null, error: '', notice: '', preview: null };
+  const state = { period: '90', search: '', page: 1, report: null, detail: null, selected: null, detailTarget: null, detailError: '', updatesAvailable: false, refreshing: false, tab: 'overview', horizon: 30, detailLoading: false, loading: true, indexing: false, busy: false, settings: null, settingsDraft: null, reorderDraft: null, error: '', notice: '', preview: null };
   let reportSeq = 0, detailSeq = 0, searchTimer, observer;
-  let activeReportPath, activeDetailPath, preloadTimer, preloadSeq = 0, preloadQueue = [], preloadTargets = [], preloadRunning = false, refreshTimer, checkingFreshness = false;
-  const buffer = new VeryShopReadBuffer((path, signal) => api(path, undefined, signal), { onRevision: scheduleFreshRefresh, validate: matchesRead });
+  let activeReportPath, activeDetailPath, preloadTimer, preloadSeq = 0, preloadQueue = [], preloadTargets = [], preloadRunning = false, checkingFreshness = false;
+  let refreshInFlight, detailInFlight, freshnessController, lastFreshnessAt = -Infinity;
+  const buffer = new VeryShopReadBuffer((path, signal) => api(path, undefined, signal), { onRevision: markUpdatesAvailable, validate: matchesRead });
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const number = (value, digits = 0) => new Intl.NumberFormat(cfg.locale, { maximumFractionDigits: digits }).format(Number(value) || 0);
   const rate = value => number(value, value > 0 && value < 0.01 ? 4 : 2);
@@ -39,9 +40,10 @@
     return !!match && matchesDetail(value, match[1], match[2]);
   }
   function displayedDetail() {
-    return !state.detailLoading && !state.detailError && matchesDetail(state.detail, state.selected, state.period) && (!buffer.revision || state.detail.revision === buffer.revision) ? state.detail : null;
+    // A displayed graph is a snapshot. Cache invalidation must never replace it or blank it.
+    return !state.detailLoading && !state.detailError && matchesDetail(state.detail, state.selected, state.period) ? state.detail : null;
   }
-  const canPreload = () => state.tab === 'overview' && document.visibilityState === 'visible' && !document.getElementById('vpa-planning')?.open && state.report?.sync.complete && !state.loading && !state.detailLoading && !state.indexing && !state.busy && navigator.onLine !== false && !navigator.connection?.saveData && !['slow-2g', '2g'].includes(navigator.connection?.effectiveType);
+  const canPreload = () => state.tab === 'overview' && document.visibilityState === 'visible' && !document.getElementById('vpa-planning')?.open && state.report?.sync?.complete && !state.loading && !state.detailLoading && !state.refreshing && !state.indexing && !state.busy && navigator.onLine !== false && !navigator.connection?.saveData && !['slow-2g', '2g'].includes(navigator.connection?.effectiveType);
 
   function pausePreload(except) {
     preloadSeq++;
@@ -68,7 +70,7 @@
     const period = state.period;
     const current = state.report.rows.map(row => `products/${row.id}?period=${period}`);
     preloadTargets = [...current];
-    preloadQueue = [...current];
+    preloadQueue = current.filter(path => !displayedDetail() || path !== detailPath(state.selected));
     // Visible products must not wait for an uncached or slow next-page report.
     if (state.report.page < state.report.pages) preloadQueue.push(reportPath(state.report.page + 1));
     updateBufferStatus();
@@ -79,7 +81,7 @@
     if (!path.startsWith('report?')) return;
     const next = value.rows.map(row => `products/${row.id}?period=${period}`).filter(path => !preloadTargets.includes(path));
     preloadTargets.push(...next);
-    preloadQueue.push(...next);
+    preloadQueue.push(...next.filter(path => !displayedDetail() || path !== detailPath(state.selected)));
   }
 
   async function pumpPreload(sequence, period) {
@@ -108,34 +110,43 @@
     }
   }
 
-  function scheduleFreshRefresh() {
-    pausePreload();
-    clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(async () => {
-      if (document.visibilityState !== 'visible') return;
-      if (state.busy || state.indexing || state.loading || state.detailLoading || document.getElementById('vpa-planning')?.open) { scheduleFreshRefresh(); return; }
-      await refreshData();
-    }, 200);
+  function markUpdatesAvailable() {
+    if (!state.detail || state.refreshing) return;
+    state.updatesAvailable = true;
+    const label = document.getElementById('vpa-update-status');
+    if (label) { label.hidden = false; label.textContent = 'Updates available'; }
   }
 
-  async function refreshData() {
-    pausePreload();
-    buffer.clear();
-    try { state.settings = await api('settings'); }
-    catch (error) { state.error = error.message; }
-    await loadReport(true);
+  function refreshData() {
+    if (refreshInFlight) return refreshInFlight;
+    state.refreshing = true;
+    pausePreload(); freshnessController?.abort(); buffer.clear(); render();
+    refreshInFlight = (async () => {
+      let settingsRead = false;
+      try { state.settings = await api('settings'); settingsRead = true; }
+      catch (error) { state.error = error.message; }
+      await loadReport(true);
+      if (settingsRead && displayedDetail()?.revision === buffer.revision && state.report?.revision === buffer.revision) state.updatesAvailable = false;
+    })().finally(() => {
+      state.refreshing = false; refreshInFlight = null; render(); startPreload();
+    });
+    return refreshInFlight;
   }
 
-  async function checkFreshness() {
-    if (checkingFreshness || document.visibilityState !== 'visible' || document.getElementById('vpa-planning')?.open || state.busy || state.indexing || state.loading || state.detailLoading) return;
+  async function checkFreshness({ force = false } = {}) {
+    if (checkingFreshness || (!force && Date.now() - lastFreshnessAt < 30000) || document.visibilityState !== 'visible' || document.getElementById('vpa-planning')?.open || state.refreshing || state.busy || state.indexing || state.loading || state.detailLoading) return;
     checkingFreshness = true;
+    lastFreshnessAt = Date.now();
     let changed = false;
     const controller = new AbortController();
+    freshnessController = controller;
+    const generation = buffer.generation, revision = buffer.revision;
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
       const status = await api('sync', undefined, controller.signal);
-      changed = buffer.confirm(status.revision);
-    } catch (_) { /* A later freshness check or explicit refresh can retry a transient failure. */ }
+      // A response started before a newer graph/read/refresh cannot rewind the cache.
+      if (generation === buffer.generation && revision === buffer.revision) changed = buffer.confirm(status.revision);
+    } catch (_) { lastFreshnessAt = Date.now() - 15000; /* Retry transient check failures after a short cooldown. */ }
     finally {
       clearTimeout(timeout);
       checkingFreshness = false;
@@ -155,7 +166,7 @@
     root.innerHTML = `
       <header class="vpa-header">
         <h1>Stock analysis</h1>
-        <div class="vpa-header-actions">${button('refresh', icon('update') + '<span class="screen-reader-text">Refresh</span>', false, state.loading || state.indexing)}<button id="vpa-tab-${state.tab === 'settings' ? 'overview' : 'settings'}" class="vpa-button" type="button" data-tab="${state.tab === 'settings' ? 'overview' : 'settings'}" ${state.tab === 'settings' ? '' : 'aria-label="Settings & emails"'}>${state.tab === 'settings' ? 'Back to graph' : 'Settings'}</button></div>
+        <div class="vpa-header-actions"><span id="vpa-update-status" class="vpa-update-status" role="status" ${state.updatesAvailable ? '' : 'hidden'}>${state.updatesAvailable ? 'Updates available' : ''}</span>${button('refresh', icon('update') + `<span>${state.refreshing ? 'Refreshing…' : 'Refresh'}</span>`, false, state.refreshing || state.loading || state.indexing || state.busy)}<button id="vpa-tab-${state.tab === 'settings' ? 'overview' : 'settings'}" class="vpa-button" type="button" data-tab="${state.tab === 'settings' ? 'overview' : 'settings'}" ${state.tab === 'settings' ? '' : 'aria-label="Settings & emails"'}>${state.tab === 'settings' ? 'Back to graph' : 'Settings'}</button></div>
       </header>
       ${state.error ? `<div class="vpa-notice vpa-error" role="alert">${icon('warning')}<span>${esc(state.error)}</span>${button('dismiss-error', 'Dismiss')}</div>` : ''}
       ${state.notice ? `<div class="vpa-notice" role="status">${icon('yes-alt')}<span>${esc(state.notice)}</span>${button('dismiss-notice', 'Dismiss')}</div>` : ''}
@@ -283,6 +294,8 @@
       return total + child.getBoundingClientRect().height + (child.classList.contains('vpa-detail-actions') ? 0 : parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0);
     }, (parseFloat(panelStyle.paddingTop) || 0) + (parseFloat(panelStyle.paddingBottom) || 0));
     const height = width < 480 ? 260 : Math.max(260, Math.min(560, (parseFloat(panelStyle.minHeight) || 0) - reserved));
+    const renderKey = [p.id, d.period, d.revision, history.today, state.horizon, width, height].join('|');
+    if (host.dataset.renderKey === renderKey) return;
     const pad = { l: width < 480 ? 40 : 52, r: 16, t: 38, b: 32 }, w = width - pad.l - pad.r, h = height - pad.t - pad.b;
     const now = history.today, first = history.start, last = now + state.horizon * 86400;
     const values = [...history.recorded, ...history.reconstructed].map(point => point.stock).concat([0, p.stock, p.reorder_point]);
@@ -340,6 +353,7 @@
       svg += pointMarker(`vpa-stockout-marker${samePoint ? ' vpa-reorder-marker' : ''}`, depletionTime, 0, `${samePoint ? 'Reorder and stock-out' : 'Stock-out'} on ${date(offsetDate(p.days_remaining, now))}`, true);
     }
     host.innerHTML = `${svg}</svg>`;
+    host.dataset.renderKey = renderKey;
   }
 
   function niceStep(value) {
@@ -369,7 +383,8 @@
       state.report = result;
       state.page = result.page;
       if (!state.selected && result.rows.length) state.selected = result.rows[0].id;
-      if (state.selected && (forceDetail || !displayedDetail())) await loadDetail(state.selected);
+      if (state.selected && (forceDetail || !displayedDetail())) await loadDetail(state.selected, { force: forceDetail });
+      if (forceDetail && displayedDetail()?.revision === result.revision && result.revision === buffer.revision) state.updatesAvailable = false;
     } catch (error) {
       if (sequence === reportSeq) {
         state.detailLoading = false;
@@ -380,7 +395,16 @@
     finally { if (sequence === reportSeq) { state.loading = false; render(); startPreload(); } }
   }
 
-  async function loadDetail(id) {
+  function loadDetail(id, { force = false } = {}) {
+    if (!force && Number(id) === state.selected) {
+      if (state.detailLoading && activeDetailPath === detailPath(id) && detailInFlight) return detailInFlight;
+      if (displayedDetail()) return Promise.resolve();
+    }
+    detailInFlight = readDetail(id);
+    return detailInFlight;
+  }
+
+  async function readDetail(id) {
     const sequence = ++detailSeq;
     const period = state.period;
     const path = detailPath(id);
@@ -562,7 +586,7 @@
     else pausePreload();
   });
   window.addEventListener('focus', checkFreshness);
-  window.addEventListener('online', checkFreshness);
+  window.addEventListener('online', () => checkFreshness({ force: true }));
   window.addEventListener('offline', () => { pausePreload(); updateBufferStatus(); });
   navigator.connection?.addEventListener('change', () => {
     if (canPreload()) { if (!preloadRunning) startPreload(); }

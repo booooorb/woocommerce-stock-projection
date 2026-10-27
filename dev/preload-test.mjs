@@ -91,7 +91,7 @@ h = dashboard(); h.document.visibilityState = 'hidden'; h.startPreload();
 h.document.visibilityState = 'visible'; h.reply = () => ({ complete: true, revision: 'new' });
 h.buffer.version('old'); await h.checkFreshness(); await h.advance(190);
 assert.equal(h.calls.filter(call => call.path.startsWith('products/')).length, 0);
-passed('A changed revision waits for fresh report data before restarting the graph queue');
+passed('A changed revision never starts an automatic foreground graph refresh');
 
 h = dashboard(); h.navigator.onLine = false; h.startPreload();
 await h.advance(1000); assert.equal(h.calls.length, 0);

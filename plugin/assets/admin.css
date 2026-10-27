@@ -20,11 +20,12 @@
 .vpa button:focus-visible, .vpa summary:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; box-shadow: none; }
 .vpa input:focus, .vpa select:focus { border-color: var(--green); box-shadow: 0 0 0 1px var(--green); outline: none; }
 .vpa .dashicons { width: 16px; height: 16px; font-size: 16px; flex: 0 0 16px; }
-.vpa-header { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 0 0 12px; }
+.vpa-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding: 0 0 12px; }
 .vpa h1 { font-size: 20px; letter-spacing: -.4px; font-weight: 600; line-height: 1.3; }
 .vpa h2 { font-size: 14px; font-weight: 600; letter-spacing: -.15px; line-height: 1.4; }
 .vpa-header-actions, .vpa-settings-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.vpa-header-actions { flex-wrap: nowrap; flex-shrink: 0; }
+.vpa-header-actions { flex-wrap: wrap; justify-content: flex-end; max-width: 100%; margin-left: auto; }
+.vpa-update-status { color: #85682f; font-size: 11px; }
 .vpa-button { display: inline-flex; gap: 6px; align-items: center; justify-content: center; padding: 6px 10px; border: 1px solid #cfd9d1; background: #fff; color: #35483c; border-radius: 5px; line-height: 1.3; font-size: 11px; font-weight: 500; min-height: 30px; text-decoration: none; }
 .vpa-button:hover { background: #eef4ef; border-color: #a9beb0; }
 .vpa-primary { color: white; background: var(--green); border-color: var(--green); }

@@ -25,8 +25,8 @@ export function dashboard() {
   const detail = (id, period = '90') => ({ product: product(id), period, revision: 'a', window: { start: '2026-07-29', end: '2026-10-26', days: 90 }, stock_history: { today: 1793059200, start: 1785283200, recorded_from: 1785283200, recorded: [{ time: 1785283200, stock: id * 100 }, { time: 1793059200, stock: id * 10 }], reconstructed: [] } });
   const reports = page => ({ page, pages: 2, total: 4, window: { start: '2026-07-29', end: '2026-10-26' }, rows: (page === 1 ? [1, 2] : [3, 4]).map(product), sync: { complete: true }, revision: 'a' });
   const env = {
-    calls, document, navigator, connection, planning, status, root, detail, renders: [],
-    reply: path => path === 'sync' ? { complete: true, revision: 'a' } : path.startsWith('report?') ? reports(Number(new URLSearchParams(path.split('?')[1]).get('page'))) : detail(Number(path.match(/^products\/(\d+)/)?.[1]), new URLSearchParams(path.split('?')[1]).get('period')),
+    calls, document, navigator, connection, planning, status, root, detail, revision: 'a', renders: [],
+    reply: path => path === 'settings' ? { settings: { reorder_days: 7 } } : { ...(path === 'sync' ? { complete: true } : path.startsWith('report?') ? reports(Number(new URLSearchParams(path.split('?')[1]).get('page'))) : detail(Number(path.match(/^products\/(\d+)/)?.[1]), new URLSearchParams(path.split('?')[1]).get('period'))), revision: env.revision },
     async emit(name, type, event = {}) { for (const callback of handlers.get(`${name}:${type}`) || []) await callback(event); await settle(); },
     async advance(ms) {
       const end = now + ms;
@@ -42,6 +42,8 @@ export function dashboard() {
   async function settle() { for (let i = 0; i < 25; i++) await Promise.resolve(); }
   const scope = {
     document, window, navigator, AbortController, DOMException, URLSearchParams, snapshots: env.renders,
+    Date: class extends Date { static now() { return Date.UTC(2026, 9, 27) + now; } },
+    getComputedStyle: element => element.style || {},
     setTimeout: (callback, delay) => { const id = ++timerId; timers.set(id, { at: now + delay, callback }); return id; },
     clearTimeout: id => timers.delete(id), setInterval: () => {},
     fetch: async (url, options) => {
@@ -52,7 +54,7 @@ export function dashboard() {
   };
   vm.runInNewContext(bufferSource, scope);
   const instrumented = adminSource.replace('  init();\n})();', `  render = () => { root.innerHTML = overview(); snapshots.push(root.innerHTML); };
-  globalThis.controller = { state, buffer, startPreload, checkFreshness, pausePreload, loadDetail, loadReport, overview, detailView, drawChart };
+  globalThis.controller = { state, buffer, startPreload, checkFreshness, pausePreload, loadDetail, loadReport, refreshData, overview, detailView, drawChart };
 })();`);
   assert.notEqual(instrumented, adminSource, 'Dashboard test hook must match the entry point');
   vm.runInNewContext(instrumented, scope);
