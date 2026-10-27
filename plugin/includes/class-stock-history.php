@@ -7,6 +7,8 @@ defined( 'ABSPATH' ) || exit;
 final class StockHistory {
     private static $recent = array();
     private static $unlinked = array();
+    private static $sequence = 0;
+    private static $item_adjustments = array();
     public static function table(): string {
         global $wpdb;
         return $wpdb->prefix . 'veryshop_stock_history';
@@ -98,7 +100,7 @@ final class StockHistory {
         ), array( '%d', '%s', '%s', '%f', '%f', '%s', '%f' ) );
         if ( $ok ) {
             if ( $linkable && empty( self::$unlinked[ $id ] ) ) {
-                self::$recent[ $id ][] = array( 'id' => (int) $wpdb->insert_id, 'from' => $previous ? (float) $previous['quantity'] : null, 'to' => $quantity );
+                self::$recent[ $id ][] = array( 'id' => (int) $wpdb->insert_id, 'sequence' => ++self::$sequence, 'from' => $previous ? (float) $previous['quantity'] : null, 'to' => $quantity );
                 if ( count( self::$recent[ $id ] ) > 100 ) { self::$recent[ $id ] = array(); self::$unlinked[ $id ] = true; }
             }
             Repository::invalidate();
@@ -123,6 +125,45 @@ final class StockHistory {
         self::$recent[ $owner ] = array_filter( self::$recent[ $owner ], static function ( $row ) use ( $recent ) { return $row['id'] !== $recent['id']; } );
         if ( false === $ok ) { Safety::record( 'order_stock_link' ); }
         if ( $ok ) { Repository::invalidate(); }
+    }
+
+    /** Admin item edits and refund restocks do not fire the normal reduction hook. */
+    public static function begin_item_adjustment( $item, string $source, float $delta ): void {
+        if ( ! $item instanceof \WC_Order_Item_Product || ! $item->get_id() ) { return; }
+        unset( self::$item_adjustments[ $item->get_id() ] );
+        if ( ! Repository::ready() || ! $item->get_order_id() || abs( $delta ) < 0.00001 ) { return; }
+        $product = $item->get_product();
+        if ( ! $product || ! $product->managing_stock() ) { return; }
+        self::$item_adjustments[ $item->get_id() ] = array( 'owner' => $product->get_stock_managed_by_id(), 'order' => $item->get_order_id(),
+            'after' => self::$sequence, 'reduced' => (float) $item->get_meta( '_reduced_stock', true ), 'source' => $source, 'delta' => $delta );
+    }
+
+    public static function begin_admin_adjustment( $item, $quantity ): void {
+        if ( ! $item instanceof \WC_Order_Item_Product ) { return; }
+        $quantity = wc_stock_amount( $quantity >= 0 ? $quantity : $item->get_quantity() );
+        $reduced = wc_stock_amount( $item->get_meta( '_reduced_stock', true ) );
+        $diff = $quantity - wc_stock_amount( $item->get_meta( '_restock_refunded_items', true ) ) - $reduced;
+        self::begin_item_adjustment( $item, 'order_edit', 0 === $quantity ? $reduced : -$diff );
+    }
+
+    public static function begin_refund( $order, $items ): void {
+        if ( ! $order instanceof \WC_Order || ! is_array( $items ) ) { return; }
+        foreach ( $order->get_items() as $item ) {
+            if ( ! empty( $items[ $item->get_id() ]['qty'] ) ) { self::begin_item_adjustment( $item, 'order_refund', (float) $items[ $item->get_id() ]['qty'] ); }
+        }
+    }
+
+    /** Require one new observation and the matching WooCommerce reduced-stock metadata change. */
+    public static function finish_item_adjustment( $item ): void {
+        if ( ! $item instanceof \WC_Order_Item_Product || ! isset( self::$item_adjustments[ $item->get_id() ] ) ) { return; }
+        $context = self::$item_adjustments[ $item->get_id() ];
+        unset( self::$item_adjustments[ $item->get_id() ] );
+        if ( $context['order'] !== $item->get_order_id() || ! empty( self::$unlinked[ $context['owner'] ] ) ) { return; }
+        $delta = $context['reduced'] - (float) $item->get_meta( '_reduced_stock', true );
+        if ( abs( $delta ) < 0.00001 || abs( $delta - $context['delta'] ) > 0.00001 ) { return; }
+        $changes = array_values( array_filter( self::$recent[ $context['owner'] ] ?? array(), static function ( $row ) use ( $context ) { return $row['sequence'] > $context['after']; } ) );
+        if ( 1 !== count( $changes ) || null === $changes[0]['from'] || abs( $changes[0]['to'] - $changes[0]['from'] - $delta ) > 0.00001 ) { return; }
+        self::link_order( $item, $item->get_order(), $changes[0]['from'], $changes[0]['to'], $context['source'] );
     }
 
     /** Seed existing catalogs in short batches without blocking activation on large stores. */

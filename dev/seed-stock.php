@@ -4,7 +4,7 @@ use VeryShop\ProductAnalysis\Repository;
 use VeryShop\ProductAnalysis\Reports;
 use VeryShop\ProductAnalysis\StockHistory;
 
-if ( get_option( 'vpa_demo_stock_seeded' ) ) { return; }
+if ( get_option( 'vpa_demo_stock_seeded' ) ) { require __DIR__ . '/seed-order-links.php'; return; }
 $extra = array( 'Canvas Apron', 'Wool Desk Mat', 'Coaster Set', 'Storage Basket', 'Travel Pouch', 'Kitchen Brush', 'Cotton Napkins', 'Oak Wall Hook', 'Small Planter', 'Reusable Lunch Bag', 'Glass Storage Jar', 'Reading Light' );
 foreach ( $extra as $i => $name ) {
     $sku = 'VS-EXTRA-' . ( $i + 1 );
@@ -37,3 +37,4 @@ foreach ( $products as $index => $row ) {
 update_option( 'vpa_demo_stock_seeded', true, false );
 Repository::invalidate();
 echo "Demo stock history and product pages ready.\n";
+require __DIR__ . '/seed-order-links.php';

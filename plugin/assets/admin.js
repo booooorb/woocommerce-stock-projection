@@ -351,19 +351,27 @@
   }
 
   function restockPoints(plan, first, last) {
-    const start = Math.max(first, plan.placed_at);
+    const start = Math.max(first, plan.placed_at, plan.arrival_at);
     if (start > last) return [];
-    const beforeAt = time => plan.stock_at_order <= 0 ? plan.stock_at_order : Math.max(0, plan.stock_at_order - plan.rate * (time - plan.placed_at) / 86400);
     const afterAt = time => plan.after <= 0 ? plan.after : Math.max(0, plan.after - plan.rate * (time - plan.arrival_at) / 86400);
-    const points = [{ time: start, stock: start < plan.arrival_at ? beforeAt(start) : afterAt(start) }];
-    if (start < plan.arrival_at) {
-      const zero = plan.rate > 0 && plan.stock_at_order > 0 ? plan.placed_at + plan.stock_at_order / plan.rate * 86400 : null;
-      if (zero && zero > start && zero < Math.min(last, plan.arrival_at)) points.push({ time: zero, stock: 0 });
-      if (plan.arrival_at <= last) points.push({ time: plan.arrival_at, stock: plan.before }, { time: plan.arrival_at, stock: plan.after });
-    }
-    if (plan.stockout_at && plan.stockout_at > Math.max(start, plan.arrival_at) && plan.stockout_at < last) points.push({ time: plan.stockout_at, stock: 0 });
-    points.push({ time: last, stock: last < plan.arrival_at ? beforeAt(last) : afterAt(last) });
+    const end = plan.stockout_at ? Math.min(last, plan.stockout_at) : last;
+    if (end < start) return [];
+    const points = start === plan.arrival_at ? [{ time: start, stock: plan.before }, { time: start, stock: plan.after }] : [{ time: start, stock: afterAt(start) }];
+    if (end > start) points.push({ time: end, stock: afterAt(end) });
     return points;
+  }
+
+  function projectionPoints(p, plan, now, last) {
+    // One timeline: green up to delivery, blue from delivery onward.
+    const end = plan ? Math.min(last, Math.max(now, plan.arrival_at)) : last;
+    const current = [];
+    if (end > now) {
+      current.push({ time: now, stock: p.stock });
+      const zero = p.rate > 0 && p.stock > 0 ? now + p.stock / p.rate * 86400 : null;
+      if (zero && zero < end) current.push({ time: zero, stock: 0 });
+      current.push({ time: end, stock: p.stock <= 0 ? p.stock : Math.max(0, p.stock - p.rate * (end - now) / 86400) });
+    }
+    return { current, current_end: end, restock: plan ? restockPoints(plan, now, last) : [] };
   }
 
   function overdueInfo(p, now) {
@@ -396,7 +404,7 @@
     closeHistoryHover();
     const pad = { l: width < 480 ? 40 : 52, r: 16, t: 38, b: 32 }, w = width - pad.l - pad.r, h = height - pad.t - pad.b;
     const now = history.today, first = history.start, last = now + horizon * 86400;
-    const planned = plan ? restockPoints(plan, first, last) : [], overdue = overdueInfo(p, now);
+    const projections = projectionPoints(p, plan, now, last), planned = projections.restock, overdue = overdueInfo(p, now);
     const values = [...history.recorded, ...history.reconstructed, ...planned].map(point => point.stock).concat([0, p.stock, p.reorder_point]);
     const rawMin = Math.min(0, ...values), rawMax = Math.max(1, ...values);
     const tickStep = niceStep((rawMax - rawMin) / 4);
@@ -438,11 +446,8 @@
     historySegments(history).forEach((segment, index) => {
       svg += `<rect class="vpa-history-target" x="${x(segment.end) - 6}" y="${Math.min(y(segment.before), y(segment.after)) - 4}" width="12" height="${Math.max(12, Math.abs(y(segment.after) - y(segment.before)) + 8)}" data-history-index="${index}" data-x="${x(segment.end)}" data-y="${y(segment.after)}" tabindex="${index ? -1 : 0}" role="button" aria-label="${esc(`${segment.kind === 'estimated' ? 'Estimated dip' : 'Stock change'} ${moment(segment.end)}. Show orders and stock changes.`)}"/>`;
     });
-    const future = [{ time: now, stock: p.stock }];
     const depletionTime = p.rate > 0 && p.stock > 0 ? now + p.stock / p.rate * 86400 : null;
-    if (depletionTime && depletionTime < last) future.push({ time: depletionTime, stock: 0 });
-    future.push({ time: last, stock: p.stock <= 0 ? p.stock : Math.max(0, p.stock - p.rate * horizon) });
-    svg += `<path d="${path(future)}" fill="none" stroke="#176b50" stroke-width="2.5" stroke-dasharray="7 5"/>`;
+    if (projections.current.length) svg += `<path class="vpa-current-projection" d="${path(projections.current)}" fill="none" stroke="#176b50" stroke-width="2.5" stroke-dasharray="7 5"/>`;
     if (planned.length) {
       const blue = plan.confirmed ? '#2271b1' : '#8cbfe8';
       svg += `<path class="vpa-restock-path ${plan.confirmed ? 'vpa-restock-ordered' : 'vpa-restock-draft'}" d="${path(planned)}" fill="none" stroke="${blue}" stroke-width="2.8" stroke-dasharray="3 5" stroke-linejoin="round"/>`;
@@ -452,8 +457,8 @@
     if (p.rate > 0) svg += `<g class="vpa-chart-target vpa-reorder-target" tabindex="0" role="img" aria-label="Reorder ${p.planning.reorder_days} days, at ${esc(number(p.reorder_point, 2))} units"><line class="vpa-reorder-line" x1="${pad.l}" x2="${width - pad.r}" y1="${y(p.reorder_point)}" y2="${y(p.reorder_point)}" stroke="#b18b4d" stroke-dasharray="3 5"/><line class="vpa-hover-hit" x1="${pad.l}" x2="${width - pad.r}" y1="${y(p.reorder_point)}" y2="${y(p.reorder_point)}" stroke="transparent" stroke-width="14" pointer-events="stroke"/>${tooltip(`Reorder ${p.planning.reorder_days} days`, pad.l + 65, y(p.reorder_point))}</g>`;
     svg += `<line x1="${todayX}" x2="${todayX}" y1="${pad.t - 5}" y2="${pad.t + h}" stroke="#5d7665" stroke-width="1.2" stroke-dasharray="4 4"/><rect x="${Math.min(width - pad.r - 46, Math.max(pad.l, todayX - 23))}" y="5" width="46" height="20" rx="4" fill="#176b50"/><text x="${Math.min(width - pad.r - 23, Math.max(pad.l + 23, todayX))}" y="19" text-anchor="middle" class="vpa-svg-today">Today</text><circle cx="${todayX}" cy="${y(p.stock)}" r="4.5" fill="#176b50" stroke="white" stroke-width="2"/>`;
     const reorderTime = p.rate > 0 && p.stock > 0 && Number.isFinite(p.reorder_in) && p.reorder_in >= 0 ? now + p.reorder_in * 86400 : null;
-    const reorderVisible = reorderTime !== null && reorderTime <= last;
-    const stockoutVisible = depletionTime !== null && depletionTime <= last;
+    const reorderVisible = reorderTime !== null && reorderTime <= projections.current_end;
+    const stockoutVisible = depletionTime !== null && depletionTime <= projections.current_end;
     const samePoint = reorderVisible && stockoutVisible && Math.abs(reorderTime - depletionTime) < 1;
     if (reorderVisible && !samePoint) {
       svg += pointMarker('vpa-reorder-marker', reorderTime, p.reorder_point, `Reorder on ${date(offsetDate(p.reorder_in, now))}`);

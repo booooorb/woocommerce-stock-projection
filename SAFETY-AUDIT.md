@@ -1,6 +1,6 @@
 # Safety audit: VeryShop Product Analysis 1.5.0
 
-**Historical audit:** The original sections below record version 1.5.0. The 1.7.0 update at the end records the latest preservation checks. VERIFICATION.md records feature validation; the original release identity identifies the audited 1.5.0 archive.
+**Historical audit:** The original sections below record version 1.5.0. The 1.7.1 update at the end records the latest preservation checks. VERIFICATION.md records feature validation; the original release identity identifies the audited 1.5.0 archive.
 
 Reviewed on October 26, 2026. **365 checks passed.** This is a code review and isolated test result, not a guarantee for an untested production website.
 
@@ -91,3 +91,14 @@ Confirmed plans immediately suppress the stock pool's reorder, low-stock and out
 The 290 functional integration assertions and 74 JavaScript assertions also passed. New checks cover invalid quantities/dates, keeping an existing plan after invalid input, no stock changes on confirmation/clear, shared stock, warning/email suppression at zero inventory, projected arrival/coverage, overdue rendering and offset hover geometry. Browser checks verified preview, confirmation, persistence after reload and clearing with real inventory unchanged. Test plans were cleared afterward. All tests remain isolated Playground PHP/SQLite evidence; native production MySQL/MariaDB, live checkout with the merchant's extensions, and inbox delivery remain untested.
 
 Release 1.7.0 archive: `dist/veryshop-product-analysis.zip`; 12 production files; SHA-256 `b6fb14f8c0a2b604d9761ecfc6c828b2896c683447204610a5c01de13d09adf7`.
+
+
+## Order association and projection fix 1.7.1 — October 27, 2026
+
+All four preservation audits passed again (35 assertions per runtime/storage combination). The added admin-edit/refund observers return WooCommerce's original filter values, inspect request-local observations and reduced-stock metadata, and annotate only the plugin-owned stock-history row after a matching source operation. All callbacks remain inside the failure-isolation boundary. They do not invoke an order, item or product save, adjust stock, start transactions, or add a new schema migration. Current integration tests confirm ordinary stock changes finish exactly once if the annotation update throws.
+
+Current functional checks passed 153 assertions per order-storage mode; all 74 JavaScript assertions passed. Minimum-version focused order-link checks passed 27 per mode. An expanded full WC 9.0 / WP 6.6 Playground suite failed an existing refund-query/ranking fixture: the WC refund API returned no child refunds despite a stored child refund row. This remains unresolved, is outside the focused stock-link success claim, and prevents claiming full older-version functional certification. No native MySQL/MariaDB or live merchant environment was tested.
+
+The development demo correction is restricted to local demo fixtures and omitted from the 12-file production archive. It rebuilds stock-only demo observations from their existing demo order items and verifies current WooCommerce quantities stay unchanged. The shipped plugin does not guess or backfill associations on older real observations. Manual inventory changes and unsupported/custom stock paths can have no provable order association; those remain unlinked.
+
+Release 1.7.1 archive: `dist/veryshop-product-analysis.zip`; 12 production files; SHA-256 `69cc21d12d46c193631558c575cb71bfced53700111067f9a8d958e7b03cd0c8`.

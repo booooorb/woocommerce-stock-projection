@@ -55,7 +55,7 @@ export function dashboard({ timezone = 'UTC' } = {}) {
   };
   vm.runInNewContext(bufferSource, scope);
   const instrumented = adminSource.replace('  init();\n})();', `  render = () => { root.innerHTML = overview(); snapshots.push(root.innerHTML); };
-  globalThis.controller = { state, buffer, startPreload, checkFreshness, pausePreload, loadDetail, loadReport, refreshData, overview, detailView, drawChart, historySegments, historyContent, showHistoryHover, scheduleHistoryHover, closeHistoryHover, historyCache, historyPopoverPosition, buildRestockProjection, restockPoints, restockProjection, chartHorizon, overdueInfo, planningForm, storeDateTimestamp };
+  globalThis.controller = { state, buffer, startPreload, checkFreshness, pausePreload, loadDetail, loadReport, refreshData, overview, detailView, drawChart, historySegments, historyContent, showHistoryHover, scheduleHistoryHover, closeHistoryHover, historyCache, historyPopoverPosition, buildRestockProjection, restockPoints, projectionPoints, restockProjection, chartHorizon, overdueInfo, planningForm, storeDateTimestamp };
 })();`);
   assert.notEqual(instrumented, adminSource, 'Dashboard test hook must match the entry point');
   vm.runInNewContext(instrumented, scope);

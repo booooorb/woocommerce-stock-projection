@@ -50,6 +50,17 @@ final class Plugin {
         add_action( 'woocommerce_restore_order_item_stock', static function ( $item, $to, $from, $order ) {
             Safety::run( 'restore_stock_link', static function () use ( $item, $to, $from, $order ) { StockHistory::link_order( $item, $order, (float) $from, (float) $to, 'order_restore' ); } );
         }, 20, 4 );
+        add_filter( 'woocommerce_prevent_adjust_line_item_product_stock', static function ( $prevent, $item, $quantity ) {
+            if ( ! $prevent ) { Safety::run( 'begin_item_stock_link', static function () use ( $item, $quantity ) { StockHistory::begin_admin_adjustment( $item, $quantity ); } ); }
+            return $prevent;
+        }, PHP_INT_MAX, 3 );
+        add_filter( 'woocommerce_can_restock_refunded_items', static function ( $allowed, $order, $items ) {
+            if ( $allowed ) { Safety::run( 'begin_refund_stock_link', static function () use ( $order, $items ) { StockHistory::begin_refund( $order, $items ); } ); }
+            return $allowed;
+        }, PHP_INT_MAX, 3 );
+        add_action( 'woocommerce_after_order_item_object_save', static function ( $item ) {
+            Safety::run( 'finish_item_stock_link', static function () use ( $item ) { StockHistory::finish_item_adjustment( $item ); } );
+        }, 20 );
         add_action( 'admin_notices', static function () {
             if ( self::allowed() && get_option( 'vpa_schema_error' ) ) {
                 echo '<div class="notice notice-warning"><p>VeryShop Product Analysis is paused because its own analytics storage could not be initialized. Check database permissions before using analysis.</p></div>';

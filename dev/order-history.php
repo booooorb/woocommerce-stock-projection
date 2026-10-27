@@ -49,6 +49,48 @@ $error_product = vpa_product( 'Order-link failure fixture', 20 ); $error_order =
 $break_link = static function ( $sql ) { if ( preg_match( '/^UPDATE.*veryshop_stock_history.*order_id/i', $sql ) ) { throw new RuntimeException( 'Simulated order-link failure' ); } return $sql; };
 remove_filter( 'woocommerce_can_reduce_order_stock', '__return_false' ); add_filter( 'query', $break_link ); wc_reduce_stock_levels( $error_order ); remove_filter( 'query', $break_link ); add_filter( 'woocommerce_can_reduce_order_stock', '__return_false' );
 vpa_check( vpa_near( wc_get_product( $error_product->get_id() )->get_stock_quantity(), 18 ), 'Order-linking failure cannot interrupt or duplicate WooCommerce stock reduction' );
+
+require_once WC_ABSPATH . 'includes/admin/wc-admin-functions.php';
+$edit_product = vpa_product( 'Admin order stock fixture', 40 );
+$edit_order = vpa_order( array( array( $edit_product, 3 ) ), 0, 'pending' );
+$edit_order->set_billing_first_name( 'Jordan' ); $edit_order->set_billing_last_name( 'Patel' ); $edit_order->save();
+remove_filter( 'woocommerce_can_reduce_order_stock', '__return_false' ); wc_reduce_stock_levels( $edit_order ); add_filter( 'woocommerce_can_reduce_order_stock', '__return_false' );
+$edit_items = $edit_order->get_items(); $edit_item = reset( $edit_items );
+$edit_item->set_quantity( 5 ); $edit_item->save();
+$edit_change = wc_maybe_adjust_line_item_product_stock( $edit_item );
+$edit_drop = vpa_latest_observation( $edit_product->get_id() );
+vpa_check( (int) $edit_drop['order_id'] === $edit_order->get_id() && (int) $edit_drop['order_item_id'] === $edit_item->get_id() && vpa_near( $edit_drop['quantity'], 35 ) && vpa_near( $edit_drop['depleted'], 2 ), 'Increasing an admin order quantity links its additional stock drop to the exact order item' );
+$edit_hover = vpa_events( $edit_product->get_id(), array( 'kind' => 'recorded', 'start' => strtotime( $edit_drop['recorded_at'] . ' UTC' ), 'end' => time(), 'start_id' => (int) $edit_drop['id'] - 1, 'end_id' => (int) $edit_drop['id'], 'page' => 1 ) )->get_data();
+vpa_check( 1 === count( $edit_hover['events'] ) && 'Jordan Patel' === $edit_hover['events'][0]['order']['customer_name'] && vpa_near( $edit_hover['events'][0]['delta'], -2 ), 'Recorded admin-edit hover returns its real order, customer name and exact stock change' );
+$edit_change = wc_maybe_adjust_line_item_product_stock( $edit_item, 0 );
+$edit_restore = vpa_latest_observation( $edit_product->get_id() );
+vpa_check( (int) $edit_restore['order_id'] === $edit_order->get_id() && vpa_near( $edit_restore['quantity'], 40 ), 'Removing an admin order item links its stock restoration without another reduction' );
+$refund_product = vpa_product( 'Refund stock fixture', 50 );
+$refund_order = vpa_order( array( array( $refund_product, 5 ) ), 0, 'pending' );
+remove_filter( 'woocommerce_can_reduce_order_stock', '__return_false' ); wc_reduce_stock_levels( $refund_order ); add_filter( 'woocommerce_can_reduce_order_stock', '__return_false' );
+$refund_items = $refund_order->get_items(); $refund_item = reset( $refund_items );
+wc_restock_refunded_items( $refund_order, array( $refund_item->get_id() => array( 'qty' => 2 ) ) );
+$refund_stock = vpa_latest_observation( $refund_product->get_id() );
+vpa_check( (int) $refund_stock['order_id'] === $refund_order->get_id() && (int) $refund_stock['order_item_id'] === $refund_item->get_id() && vpa_near( $refund_stock['quantity'], 47 ), 'Refund restocking links the exact original order and item' );
+$shared_refunds = array(); foreach ( $shared_order->get_items() as $item ) { $shared_refunds[ $item->get_id() ] = array( 'qty' => 1 ); }
+$shared_before = (float) wc_get_product( $parent->get_id() )->get_stock_quantity();
+wc_restock_refunded_items( $shared_order, $shared_refunds );
+$shared_refund_links = $wpdb->get_results( $wpdb->prepare( 'SELECT order_item_id FROM ' . StockHistory::table() . " WHERE order_id = %d AND source = 'order_refund'", $shared_order->get_id() ), ARRAY_A );
+vpa_check( 2 === count( $shared_refund_links ) && 2 === count( array_unique( array_column( $shared_refund_links, 'order_item_id' ) ) ) && vpa_near( wc_get_product( $parent->get_id() )->get_stock_quantity(), $shared_before + 2 ), 'Refunding shared-stock variations links each original item and restores each quantity once' );
+wc_maybe_adjust_line_item_product_stock( $refund_item ); // No quantity change, so no stock operation.
+wc_update_product_stock( $refund_product, 1, 'decrease' );
+$refund_item->update_meta_data( '_reduced_stock', 4 ); $refund_item->save();
+$unrelated_manual = vpa_latest_observation( $refund_product->get_id() );
+vpa_check( 0 === (int) $unrelated_manual['order_id'], 'A no-change order edit cannot later claim an unrelated manual stock adjustment' );
+apply_filters( 'woocommerce_prevent_adjust_line_item_product_stock', false, $edit_item, 1 );
+wc_update_product_stock( $edit_product, 1, 'decrease' ); wc_update_product_stock( $edit_product, 1, 'increase' ); wc_update_product_stock( $edit_product, 1, 'decrease' );
+$edit_item->update_meta_data( '_reduced_stock', 1 ); $edit_item->save();
+$ambiguous_edit = vpa_latest_observation( $edit_product->get_id() );
+vpa_check( 0 === (int) $ambiguous_edit['order_id'], 'Multiple stock changes inside an edit context remain unlinked instead of guessing' );
+$failure_item = reset( $edit_items );
+$failure_item->update_meta_data( '_reduced_stock', 0 ); $failure_item->save();
+add_filter( 'query', $break_link ); $failure_change = wc_maybe_adjust_line_item_product_stock( $failure_item, 2 ); remove_filter( 'query', $break_link );
+vpa_check( is_array( $failure_change ) && vpa_near( wc_get_product( $edit_product->get_id() )->get_stock_quantity(), 37 ), 'An analytics annotation failure cannot interrupt or repeat an admin stock adjustment' );
 $args_estimated = array( 'kind' => 'estimated', 'start' => ( new DateTimeImmutable( 'today', wp_timezone() ) )->getTimestamp(), 'end' => time(), 'page' => 1 );
 $estimated = vpa_events( $constant->get_id(), $args_estimated )->get_data();
 vpa_check( 1 === count( $estimated['events'] ) && vpa_near( $estimated['events'][0]['units'], 5 ) && ! isset( $estimated['events'][0]['before'] ), 'Estimated dips expose contributing indexed orders without pretending to know recorded stock levels' );

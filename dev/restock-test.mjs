@@ -15,10 +15,21 @@ passed('A delivery before depletion adds only purchased units to the remaining s
 plan = h.buildRestockProjection(100, 5, 400, now, now + 30 * day);
 assert.equal(plan.before, 0); assert.equal(plan.after, 400); assert.equal(plan.coverage_days, 80);
 const points = h.restockPoints(plan, now - day, now + 115 * day);
-assert.ok(points.some(point => point.time === now + 20 * day && point.stock === 0));
+assert.ok(points.every(point => point.time >= plan.arrival_at));
 assert.equal(points.filter(point => point.time === plan.arrival_at).length, 2);
 assert.equal(points.find(point => point.time === plan.stockout_at).stock, 0);
-passed('Late deliveries preserve the zero-stock gap and the vertical arrival jump');
+assert.equal(points.at(-1).time, plan.stockout_at);
+const paths = h.projectionPoints({ stock: 100, rate: 5 }, plan, now, now + 115 * day);
+assert.equal(paths.current.at(-1).time, plan.arrival_at);
+assert.equal(paths.current.at(-1).stock, 0);
+assert.ok(paths.current.some(point => point.time === now + 20 * day && point.stock === 0));
+assert.ok(paths.current.at(-1).time <= paths.restock[0].time);
+const past = h.projectionPoints({ stock: 50, rate: 5 }, { ...plan, arrival_at: now - day }, now, now + 115 * day);
+assert.equal(past.current.length, 0);
+assert.ok(past.restock.every(point => point.time >= now));
+const far = h.projectionPoints({ stock: 100, rate: 5 }, plan, now, now + 10 * day);
+assert.equal(far.restock.length, 0); assert.equal(far.current.at(-1).time, now + 10 * day);
+passed('Green ends at delivery; blue begins there and ends at depletion, including late and past arrivals');
 
 const zero = h.buildRestockProjection(100, 0, 20, now, now + day);
 assert.equal(zero.after, 120); assert.equal(zero.stockout_at, null);
@@ -65,7 +76,7 @@ p.planning = { ...p.planning, quantity: 400, confirmed: true, on_order: true, ar
 host.dataset.renderKey = ''; h.drawChart(host);
 assert.match(host.innerHTML, /vpa-restock-ordered/); assert.match(host.innerHTML, /stroke="#2271b1"/);
 assert.doesNotMatch(host.innerHTML, /vpa-overdue-period|vpa-overdue-marker/);
-assert.match(host.innerHTML, /vpa-stockout-acknowledged/);
+assert.doesNotMatch(host.innerHTML, /class="vpa-chart-target vpa-stockout-marker/);
 assert.match(h.overview(), /Restock Planning/); assert.doesNotMatch(h.overview(), /vpa-fact-overdue/);
 passed('Confirmed plans draw dark blue and remove overdue shading, labels and warning styles');
 
