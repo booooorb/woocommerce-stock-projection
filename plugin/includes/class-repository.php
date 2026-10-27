@@ -4,7 +4,7 @@ namespace VeryShop\ProductAnalysis;
 defined( 'ABSPATH' ) || exit;
 
 final class Repository {
-    public const SCHEMA_VERSION = '1';
+    public const SCHEMA_VERSION = '2';
 
     public static function ready(): bool {
         return self::SCHEMA_VERSION === get_option( 'vpa_db_version' );
@@ -47,7 +47,7 @@ final class Repository {
             KEY sold_on (sold_on)
         ) $charset;" );
         StockHistory::install();
-        foreach ( array( self::table() => array( 'order_item_id', 'order_id', 'product_id', 'stock_owner_id', 'sold_on', 'quantity', 'net_sales' ), StockHistory::table() => array( 'id', 'stock_owner_id', 'recorded_at', 'recorded_on', 'quantity', 'depleted', 'source' ) ) as $name => $required ) {
+        foreach ( array( self::table() => array( 'order_item_id', 'order_id', 'product_id', 'stock_owner_id', 'sold_on', 'quantity', 'net_sales' ), StockHistory::table() => array( 'id', 'stock_owner_id', 'recorded_at', 'recorded_on', 'quantity', 'depleted', 'source', 'previous_quantity', 'order_id', 'order_item_id' ) ) as $name => $required ) {
             $columns = self::table_exists( $name ) ? $wpdb->get_col( "DESCRIBE $name", 0 ) : array();
             if ( array_diff( $required, $columns ?: array() ) ) {
                 update_option( 'vpa_schema_error', 'Analytics tables could not be created or verified. Store operations remain enabled.', false );

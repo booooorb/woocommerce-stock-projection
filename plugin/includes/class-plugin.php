@@ -42,6 +42,14 @@ final class Plugin {
         $before_save = static function ( $product ) { Safety::run( 'stock_before_save', static function () use ( $product ) { StockHistory::before_save( $product ); } ); };
         add_action( 'woocommerce_before_product_object_save', $before_save );
         add_action( 'woocommerce_before_product_variation_object_save', $before_save );
+        add_action( 'woocommerce_reduce_order_item_stock', static function ( $item, $change, $order ) {
+            Safety::run( 'order_stock_link', static function () use ( $item, $change, $order ) {
+                if ( isset( $change['from'], $change['to'] ) ) { StockHistory::link_order( $item, $order, (float) $change['from'], (float) $change['to'], 'order' ); }
+            } );
+        }, 20, 3 );
+        add_action( 'woocommerce_restore_order_item_stock', static function ( $item, $to, $from, $order ) {
+            Safety::run( 'restore_stock_link', static function () use ( $item, $to, $from, $order ) { StockHistory::link_order( $item, $order, (float) $from, (float) $to, 'order_restore' ); } );
+        }, 20, 4 );
         add_action( 'admin_notices', static function () {
             if ( self::allowed() && get_option( 'vpa_schema_error' ) ) {
                 echo '<div class="notice notice-warning"><p>VeryShop Product Analysis is paused because its own analytics storage could not be initialized. Check database permissions before using analysis.</p></div>';
@@ -194,6 +202,14 @@ final class Plugin {
                 'per_page' => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 50, 'default' => 20 ),
             ) ),
             array( '/products/(?P<id>\d+)', 'GET', static function ( $r ) { return Reports::detail( (int) $r['id'], $r['period'] ); }, array( 'period' => $period ) ),
+            array( '/products/(?P<id>\d+)/events', 'GET', array( HistoryEvents::class, 'read' ), array(
+                'kind' => array( 'type' => 'string', 'enum' => array( 'recorded', 'estimated' ), 'required' => true ),
+                'start' => array( 'type' => 'integer', 'minimum' => 0, 'maximum' => 4102444800, 'required' => true ),
+                'end' => array( 'type' => 'integer', 'minimum' => 0, 'maximum' => 4102444800, 'required' => true ),
+                'start_id' => array( 'type' => 'integer', 'minimum' => 0, 'default' => 0 ),
+                'end_id' => array( 'type' => 'integer', 'minimum' => 0, 'default' => 0 ),
+                'page' => array( 'type' => 'integer', 'minimum' => 1, 'maximum' => 10000, 'default' => 1 ),
+            ) ),
             array( '/products/(?P<id>\d+)/planning', 'POST', array( __CLASS__, 'save_planning' ), array() ),
             array( '/sync', 'GET', static function () { return array_merge( Repository::state(), array( 'revision' => Reports::revision() ) ); }, array() ),
             array( '/sync', 'POST', static function ( $r ) {

@@ -5,6 +5,8 @@ defined( 'ABSPATH' ) || exit;
 
 /** Append-only inventory observations, separate from the order-derived demand index. */
 final class StockHistory {
+    private static $recent = array();
+    private static $unlinked = array();
     public static function table(): string {
         global $wpdb;
         return $wpdb->prefix . 'veryshop_stock_history';
@@ -22,6 +24,9 @@ final class StockHistory {
             quantity decimal(18,4) NOT NULL DEFAULT 0,
             depleted decimal(18,4) NOT NULL DEFAULT 0,
             source varchar(20) NOT NULL DEFAULT 'recorded',
+            previous_quantity decimal(18,4) DEFAULT NULL,
+            order_id bigint(20) unsigned NOT NULL DEFAULT 0,
+            order_item_id bigint(20) unsigned NOT NULL DEFAULT 0,
             PRIMARY KEY  (id),
             KEY owner_time (stock_owner_id,recorded_at,id),
             KEY owner_day (stock_owner_id,recorded_on),
@@ -43,6 +48,7 @@ final class StockHistory {
         }
         $lock = 'stock_' . $owner->get_id();
         if ( ! Repository::lock( $lock, 30 ) ) {
+            self::$recent[ $owner->get_id() ] = array(); self::$unlinked[ $owner->get_id() ] = true;
             return;
         }
         try {
@@ -51,9 +57,12 @@ final class StockHistory {
             if ( $last && abs( (float) $last['quantity'] - $quantity ) < 0.00001 ) {
                 return;
             }
-            if ( ! self::store( $owner->get_id(), $quantity, time(), $last ? 'change' : 'initial' ) ) {
+            if ( ! self::store( $owner->get_id(), $quantity, time(), $last ? 'change' : 'initial', true ) ) {
                 Safety::record( 'stock_recording' );
             }
+        } catch ( \Throwable $error ) {
+            self::$recent[ $owner->get_id() ] = array(); self::$unlinked[ $owner->get_id() ] = true;
+            throw $error;
         } finally {
             Repository::unlock( $lock );
         }
@@ -75,7 +84,7 @@ final class StockHistory {
     }
 
     /** Timestamp is explicit for controlled fixtures; normal capture records the current time. */
-    public static function store( int $id, float $quantity, int $at, string $source = 'recorded' ): bool {
+    public static function store( int $id, float $quantity, int $at, string $source = 'recorded', bool $linkable = false ): bool {
         global $wpdb;
         $previous = self::previous( $id, $at );
         $ok = false !== $wpdb->insert( self::table(), array(
@@ -85,11 +94,35 @@ final class StockHistory {
             'quantity' => $quantity,
             'depleted' => $previous ? max( 0, (float) $previous['quantity'] - $quantity ) : 0,
             'source' => sanitize_key( $source ),
-        ), array( '%d', '%s', '%s', '%f', '%f', '%s' ) );
+            'previous_quantity' => $previous ? (float) $previous['quantity'] : null,
+        ), array( '%d', '%s', '%s', '%f', '%f', '%s', '%f' ) );
         if ( $ok ) {
+            if ( $linkable && empty( self::$unlinked[ $id ] ) ) {
+                self::$recent[ $id ][] = array( 'id' => (int) $wpdb->insert_id, 'from' => $previous ? (float) $previous['quantity'] : null, 'to' => $quantity );
+                if ( count( self::$recent[ $id ] ) > 100 ) { self::$recent[ $id ] = array(); self::$unlinked[ $id ] = true; }
+            }
             Repository::invalidate();
-        }
+        } elseif ( $linkable ) { self::$recent[ $id ] = array(); self::$unlinked[ $id ] = true; }
         return $ok;
+    }
+
+    /** Attribute only an exact observation captured in this PHP request, never a timestamp guess. */
+    public static function link_order( $item, $order, float $from, float $to, string $source ): void {
+        if ( ! Repository::ready() || ! $item instanceof \WC_Order_Item_Product || ! $order instanceof \WC_Order || ! $item->get_id() || ! $order->get_id() ) { return; }
+        $product = $item->get_product();
+        if ( ! $product ) { return; }
+        $owner = $product->get_stock_managed_by_id();
+        if ( ! empty( self::$unlinked[ $owner ] ) ) { return; }
+        $matches = array_values( array_filter( self::$recent[ $owner ] ?? array(), static function ( $row ) use ( $from, $to ) {
+            return null !== $row['from'] && abs( $row['from'] - $from ) < 0.00001 && abs( $row['to'] - $to ) < 0.00001;
+        } ) );
+        if ( 1 !== count( $matches ) ) { return; }
+        $recent = $matches[0];
+        global $wpdb;
+        $ok = $wpdb->update( self::table(), array( 'order_id' => $order->get_id(), 'order_item_id' => $item->get_id(), 'source' => $source ), array( 'id' => $recent['id'], 'stock_owner_id' => $owner, 'order_id' => 0 ), array( '%d', '%d', '%s' ), array( '%d', '%d', '%d' ) );
+        self::$recent[ $owner ] = array_filter( self::$recent[ $owner ], static function ( $row ) use ( $recent ) { return $row['id'] !== $recent['id']; } );
+        if ( false === $ok ) { Safety::record( 'order_stock_link' ); }
+        if ( $ok ) { Repository::invalidate(); }
     }
 
     /** Seed existing catalogs in short batches without blocking activation on large stores. */

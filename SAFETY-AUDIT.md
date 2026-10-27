@@ -1,6 +1,6 @@
 # Safety audit: VeryShop Product Analysis 1.5.0
 
-**Historical audit:** This report records version 1.5.0. Later versions have separate frontend/preload validation in VERIFICATION.md; the release identity below identifies the audited 1.5.0 archive, not the current ZIP.
+**Historical audit:** The original sections below record version 1.5.0. The 1.6.0 update at the end records the latest preservation checks. VERIFICATION.md records feature validation; the original release identity identifies the audited 1.5.0 archive.
 
 Reviewed on October 26, 2026. **365 checks passed.** This is a code review and isolated test result, not a guarantee for an untested production website.
 
@@ -64,3 +64,12 @@ Reproduce with `npm test` and `npm run test:safety`. Logs are `.local/test-resul
 - Version: 1.5.0
 - Production files: 12
 - SHA-256: `0dd594c92de1fd17250db5c15a832fd7497daf6c97da9f77e67273e74a00afec`
+
+
+## Order-hover update 1.6.0 — October 27, 2026
+
+All four preservation configurations were rerun: WP 7.1.3 / WooCommerce 11.2.1 / PHP 8.3.33 and WP 6.6.10 / WooCommerce 9.0.0 / PHP 8.0.30, each with HPOS and legacy orders. **35 checks passed per configuration (140 total).** The audit now exercises authenticated order-hover reads within protected-table SQL observation and whole-store hash comparison. Existing products, orders, users, notes, coupons, protected settings, configuration and theme files remained unchanged during the audited analytics operations.
+
+The new schema adds three fields only to this plugin’s inventory-history table: previous_quantity, order_id and order_item_id. Integration tests migrated an old table and confirmed original quantities/depletion remained intact with unknown associations left empty. The new stock callback updates only a matching observation in that custom table; it does not save source orders, products or WooCommerce stock. A simulated annotation-write exception did not prevent or duplicate normal WooCommerce stock reduction. Stock-capture failures/lock contention and ambiguous transitions decline attribution.
+
+Order details require both analytics and order-edit access. They expose order number/status/edit link and quantities without customer details. Hover reads do not change the data revision. The release adds no external forecasting/email service or new scheduled work. The native database/hosting/plugin compatibility limits and staging/backup recommendation above still apply; this is evidence under the tested conditions, not an absolute live-site guarantee.

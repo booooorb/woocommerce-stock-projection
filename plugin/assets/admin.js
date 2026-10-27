@@ -9,6 +9,8 @@
   let reportSeq = 0, detailSeq = 0, searchTimer, observer;
   let activeReportPath, activeDetailPath, preloadTimer, preloadSeq = 0, preloadQueue = [], preloadTargets = [], preloadRunning = false, checkingFreshness = false;
   let refreshInFlight, detailInFlight, freshnessController, lastFreshnessAt = -Infinity;
+  let historyHover = null, historyTimer, historyHideTimer, historyController, historySequence = 0;
+  const historyCache = new Map();
   const buffer = new VeryShopReadBuffer((path, signal) => api(path, undefined, signal), { onRevision: markUpdatesAvailable, validate: matchesRead });
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const number = (value, digits = 0) => new Intl.NumberFormat(cfg.locale, { maximumFractionDigits: digits }).format(Number(value) || 0);
@@ -43,7 +45,7 @@
     // A displayed graph is a snapshot. Cache invalidation must never replace it or blank it.
     return !state.detailLoading && !state.detailError && matchesDetail(state.detail, state.selected, state.period) ? state.detail : null;
   }
-  const canPreload = () => state.tab === 'overview' && document.visibilityState === 'visible' && !document.getElementById('vpa-planning')?.open && state.report?.sync?.complete && !state.loading && !state.detailLoading && !state.refreshing && !state.indexing && !state.busy && navigator.onLine !== false && !navigator.connection?.saveData && !['slow-2g', '2g'].includes(navigator.connection?.effectiveType);
+  const canPreload = () => !historyHover && state.tab === 'overview' && document.visibilityState === 'visible' && !document.getElementById('vpa-planning')?.open && state.report?.sync?.complete && !state.loading && !state.detailLoading && !state.refreshing && !state.indexing && !state.busy && navigator.onLine !== false && !navigator.connection?.saveData && !['slow-2g', '2g'].includes(navigator.connection?.effectiveType);
 
   function pausePreload(except) {
     preloadSeq++;
@@ -157,6 +159,7 @@
   }
 
   function render() {
+    closeHistoryHover();
     const focused = root.contains(document.activeElement) ? document.activeElement.id : null;
     const selection = focused === 'vpa-search' ? document.activeElement.selectionStart : null;
     const oldList = root.querySelector('.vpa-list-rows');
@@ -296,6 +299,7 @@
     const height = width < 480 ? 260 : Math.max(260, Math.min(560, (parseFloat(panelStyle.minHeight) || 0) - reserved));
     const renderKey = [p.id, d.period, d.revision, history.today, state.horizon, width, height].join('|');
     if (host.dataset.renderKey === renderKey) return;
+    closeHistoryHover();
     const pad = { l: width < 480 ? 40 : 52, r: 16, t: 38, b: 32 }, w = width - pad.l - pad.r, h = height - pad.t - pad.b;
     const now = history.today, first = history.start, last = now + state.horizon * 86400;
     const values = [...history.recorded, ...history.reconstructed].map(point => point.stock).concat([0, p.stock, p.reorder_point]);
@@ -314,7 +318,7 @@
       return `<g class="vpa-graph-tooltip" aria-hidden="true" fill="${stockout ? '#a34331' : '#946825'}"><rect x="${labelX}" y="${labelY}" width="${labelWidth}" height="22" rx="4" fill="${stockout ? '#fff4f0' : '#fffaf0'}" stroke="${stockout ? '#dbb1a6' : '#d8bf96'}"/><text x="${labelX + labelWidth / 2}" y="${labelY + 15}" text-anchor="middle" class="vpa-svg-label">${esc(label)}</text></g>`;
     };
     const pointMarker = (classes, timestamp, quantity, label, stockout = false) => `<g class="vpa-chart-target ${classes}" tabindex="0" role="img" aria-label="${esc(label)}" data-time="${timestamp}" data-stock="${quantity}"><circle class="vpa-hover-hit" cx="${x(timestamp)}" cy="${y(quantity)}" r="12" fill="transparent"/><circle class="vpa-marker-dot" cx="${x(timestamp)}" cy="${y(quantity)}" r="5" fill="${stockout ? '#a34331' : '#b4782b'}" stroke="white" stroke-width="2"/>${tooltip(date(offsetDate((timestamp - now) / 86400, now)), x(timestamp), y(quantity), stockout)}</g>`;
-    let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="vpa-chart-title vpa-chart-desc"><title id="vpa-chart-title">Stock history and projection for ${esc(p.name)}</title><desc id="vpa-chart-desc">Current stock ${esc(number(p.stock, 2))} units. Modeled depletion ${esc(rate(p.rate))} units per day. Reorder level ${esc(number(p.reorder_point, 2))} units, ${p.planning.reorder_days} days before projected stockout. Today separates recorded or reconstructed history from the next ${state.horizon} days of projection.</desc><rect x="${todayX}" y="${pad.t}" width="${x(last) - todayX}" height="${h}" fill="#edf6f1"/>`;
+    let svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="group" aria-labelledby="vpa-chart-title vpa-chart-desc"><title id="vpa-chart-title">Stock history and projection for ${esc(p.name)}</title><desc id="vpa-chart-desc">Current stock ${esc(number(p.stock, 2))} units. Modeled depletion ${esc(rate(p.rate))} units per day. Reorder level ${esc(number(p.reorder_point, 2))} units, ${p.planning.reorder_days} days before projected stockout. Today separates recorded or reconstructed history from the next ${state.horizon} days of projection. Hover stock changes for order details; use left and right arrow keys to move between changes.</desc><rect x="${todayX}" y="${pad.t}" width="${x(last) - todayX}" height="${h}" fill="#edf6f1"/>`;
     for (let tick = minY; tick <= maxY + tickStep / 2; tick += tickStep) {
       svg += `<line x1="${pad.l}" x2="${width - pad.r}" y1="${y(tick)}" y2="${y(tick)}" stroke="#e6ece7"/><text x="${pad.l - 10}" y="${y(tick) + 4}" text-anchor="end" class="vpa-svg-label">${esc(number(tick, tickStep < 1 ? 1 : 0))}</text>`;
     }
@@ -335,6 +339,9 @@
     if (width - pad.r - todayX > 70) svg += `<text x="${width - pad.r}" y="18" text-anchor="end" class="vpa-svg-label">Projection</text>`;
     if (history.reconstructed.length) svg += `<path d="${area(history.reconstructed)}" fill="#eff5f1"/><path d="${path(history.reconstructed, true)}" fill="none" stroke="#568570" stroke-width="2.3" stroke-linejoin="round"/>`;
     if (history.recorded.length) svg += `<path d="${area(history.recorded)}" fill="#e7f2eb"/><path d="${path(history.recorded, true)}" fill="none" stroke="#176b50" stroke-width="2.3" stroke-linejoin="round"/>`;
+    historySegments(history).forEach((segment, index) => {
+      svg += `<rect class="vpa-history-target" x="${x(segment.end) - 6}" y="${Math.min(y(segment.before), y(segment.after)) - 4}" width="12" height="${Math.max(12, Math.abs(y(segment.after) - y(segment.before)) + 8)}" data-history-index="${index}" data-x="${x(segment.end)}" data-y="${y(segment.after)}" tabindex="${index ? -1 : 0}" role="button" aria-label="${esc(`${segment.kind === 'estimated' ? 'Estimated dip' : 'Stock change'} ${moment(segment.end)}. Show orders and stock changes.`)}"/>`;
+    });
     const future = [{ time: now, stock: p.stock }];
     const depletionTime = p.rate > 0 && p.stock > 0 ? now + p.stock / p.rate * 86400 : null;
     if (depletionTime && depletionTime < last) future.push({ time: depletionTime, stock: 0 });
@@ -352,8 +359,100 @@
     if (stockoutVisible) {
       svg += pointMarker(`vpa-stockout-marker${samePoint ? ' vpa-reorder-marker' : ''}`, depletionTime, 0, `${samePoint ? 'Reorder and stock-out' : 'Stock-out'} on ${date(offsetDate(p.days_remaining, now))}`, true);
     }
-    host.innerHTML = `${svg}</svg>`;
+    host.innerHTML = `${svg}</svg><div id="vpa-history-tooltip" class="vpa-history-popover" role="region" aria-label="Orders and stock changes" hidden><div class="vpa-history-popover-heading"><strong>Stock change details</strong><button type="button" class="vpa-button" data-action="close-history" aria-label="Close stock change details">×</button></div><div class="vpa-history-content" aria-live="polite"></div></div>`;
     host.dataset.renderKey = renderKey;
+  }
+
+  function historySegments(history) {
+    const segments = [];
+    for (const [kind, points] of [['estimated', history.reconstructed], ['recorded', history.recorded]]) {
+      points.forEach((point, index) => {
+        const previous = points[index - 1];
+        if (!previous || point.stock === previous.stock || (kind === 'recorded' && !point.id) || (kind === 'estimated' && point.stock >= previous.stock)) return;
+        segments.push({ kind, start: previous.time + (kind === 'estimated' ? 1 : 0), end: point.time, start_id: previous.id || 0, end_id: point.id || 0, before: previous.stock, after: point.stock });
+      });
+    }
+    return segments;
+  }
+
+  function closeHistoryHover(resume = false) {
+    clearTimeout(historyTimer); clearTimeout(historyHideTimer);
+    historyController?.abort(); historySequence++;
+    const wasOpen = !!historyHover;
+    historyHover = null;
+    const panel = document.getElementById('vpa-history-tooltip');
+    if (panel) panel.hidden = true;
+    if (resume && wasOpen) startPreload();
+  }
+
+  function positionHistoryHover(panel, target) {
+    const host = target.closest('#vpa-graph');
+    panel.style.left = `${Math.max(8, Math.min(host.clientWidth - panel.offsetWidth - 8, Number(target.dataset.x) - panel.offsetWidth / 2))}px`;
+    panel.style.top = `${Math.max(8, Math.min(host.clientHeight - panel.offsetHeight - 8, Number(target.dataset.y) + 12))}px`;
+  }
+
+  function historyContent(data) {
+    const estimated = data.kind === 'estimated';
+    const rows = data.events.map(event => {
+      const order = event.order;
+      const orderLabel = order ? `Order #${order.number}` : 'No linked order';
+      const link = order?.url && /^https?:\/\//i.test(order.url) ? `<a href="${esc(order.url)}" target="_blank" rel="noopener noreferrer">${esc(orderLabel)} ↗</a>` : esc(orderLabel);
+      const change = estimated ? `${number(event.units, 4)} units ordered · ${date(event.date)}` : `${event.before === null ? 'Unknown' : number(event.before, 4)} → ${number(event.after, 4)} units · ${moment(event.time)}`;
+      const note = estimated ? (order?.status || '') : order ? (event.delta > 0 ? 'Stock restored for this order' : 'Recorded order stock reduction') : (event.delta > 0 ? 'Stock increase; order association not recorded' : 'Order association was not recorded for this change');
+      return `<li><strong>${link}</strong><span>${esc(change)}</span><small>${esc(note)}</small></li>`;
+    }).join('');
+    return `${estimated ? '<p>Orders contributing to this estimated interval. Historical restocks are unknown.</p>' : '<p>Recorded changes in this plotted interval.</p>'}<ul>${rows || '<li>No linked changes found in this interval.</li>'}</ul>${data.page > 1 ? button('history-previous', 'Previous') : ''}${data.has_more ? button('history-next', 'More orders') : ''}`;
+  }
+
+  function showHistoryHover(target, page = 1) {
+    clearTimeout(historyTimer); clearTimeout(historyHideTimer);
+    const detail = displayedDetail(), panel = document.getElementById('vpa-history-tooltip');
+    const segment = detail && historySegments(detail.stock_history)[Number(target.dataset.historyIndex)];
+    if (!detail || !panel || !segment) return;
+    const identity = `${detail.product.id}|${detail.period}|${detail.revision}|${target.dataset.historyIndex}|${page}`;
+    if (historyHover?.identity === identity) return;
+    const focusInside = !!document.activeElement?.closest?.('#vpa-history-tooltip');
+    panel.style.minHeight = historyHover?.target === target ? `${Math.min(280, panel.offsetHeight)}px` : '';
+    if (!historyHover) pausePreload();
+    historyController?.abort(); const sequence = ++historySequence;
+    historyHover = { identity, target, page };
+    panel.hidden = false;
+    const content = panel.querySelector('.vpa-history-content');
+    content.innerHTML = '<p role="status">Loading order details…</p>';
+    positionHistoryHover(panel, target);
+    const params = new URLSearchParams({ kind: segment.kind, start: String(segment.start), end: String(segment.end), start_id: String(segment.start_id), end_id: String(segment.end_id), page: String(page) });
+    const path = `products/${detail.product.id}/events?${params}`;
+    const key = `${detail.revision}|${path}`;
+    const cached = historyCache.get(key);
+    const apply = data => {
+      if (sequence !== historySequence || displayedDetail() !== detail) return;
+      if (data.revision !== detail.revision) {
+        markUpdatesAvailable(); content.innerHTML = '<p>Data changed. Refresh the graph to inspect this interval.</p>';
+      } else content.innerHTML = historyContent(data);
+      positionHistoryHover(panel, target);
+      if (focusInside) panel.querySelector('[data-action="close-history"]')?.focus?.({ preventScroll: true });
+    };
+    if (cached && Date.now() - cached.at < 60000) { apply(cached.data); return; }
+    const controller = new AbortController(); historyController = controller;
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    api(path, undefined, controller.signal).then(data => {
+      if (controller.signal.aborted || sequence !== historySequence) return;
+      if (Number(data.product_id) !== detail.product.id || data.kind !== segment.kind || !Array.isArray(data.events)) throw new Error('Order details did not match this graph.');
+      if (data.revision === detail.revision) {
+        historyCache.delete(key); historyCache.set(key, { data, at: Date.now() });
+        while (historyCache.size > 24) historyCache.delete(historyCache.keys().next().value);
+      }
+      apply(data);
+    }).catch(error => {
+      if (sequence !== historySequence) return;
+      content.innerHTML = `<p>${esc(error.name === 'AbortError' ? 'Order details took too long to load.' : error.message)}</p>${button('history-retry', 'Retry')}`;
+    }).finally(() => clearTimeout(timeout));
+  }
+
+  function scheduleHistoryHover(target, immediate = false) {
+    clearTimeout(historyTimer); clearTimeout(historyHideTimer);
+    if (immediate) showHistoryHover(target);
+    else historyTimer = setTimeout(() => showHistoryHover(target), 150);
   }
 
   function niceStep(value) {
@@ -489,9 +588,11 @@
   root.addEventListener('change', async event => {
     captureDraft(event);
     if (event.target.id === 'vpa-period-select') { state.period = event.target.value; state.page = 1; await loadReport(); }
-    if (event.target.id === 'vpa-horizon-select') { state.horizon = Number(event.target.value); render(); }
+    if (event.target.id === 'vpa-horizon-select') { state.horizon = Number(event.target.value); render(); startPreload(); }
   });
   root.addEventListener('click', async event => {
+    const historyTarget = event.target.closest('.vpa-history-target');
+    if (historyTarget) { historyTarget.focus(); scheduleHistoryHover(historyTarget, true); return; }
     const chartTarget = event.target.closest('.vpa-chart-target');
     if (chartTarget) { chartTarget.focus(); return; }
     const target = event.target.closest('button');
@@ -503,6 +604,12 @@
       return;
     }
     const action = target.dataset.action;
+    if (action === 'close-history') { closeHistoryHover(true); return; }
+    if (['history-next', 'history-previous', 'history-retry'].includes(action) && historyHover) {
+      const current = historyHover;
+      const page = Math.max(1, current.page + (action === 'history-next' ? 1 : action === 'history-previous' ? -1 : 0));
+      current.identity = null; showHistoryHover(current.target, page); return;
+    }
     if (action === 'retry-detail') { await loadDetail(state.selected); return; }
     if (action === 'refresh') { state.error = ''; await refreshData(); if (state.report && !state.report.sync.complete) indexOrders(false); }
     if (action === 'reindex') await indexOrders(true);
@@ -528,7 +635,26 @@
   });
 
   root.addEventListener('keydown', event => {
-    if (event.key === 'Escape') event.target.closest('.vpa-chart-target')?.classList.add('vpa-tooltip-dismissed');
+    if (event.key === 'Escape') { event.target.closest('.vpa-chart-target')?.classList.add('vpa-tooltip-dismissed'); closeHistoryHover(true); }
+    const target = event.target.closest('.vpa-history-target');
+    if (target && ['Enter', ' '].includes(event.key)) { event.preventDefault(); scheduleHistoryHover(target, true); }
+    if (target && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+      event.preventDefault();
+      const targets = [...target.closest('#vpa-graph').querySelectorAll('.vpa-history-target')];
+      const next = targets[Math.max(0, Math.min(targets.length - 1, targets.indexOf(target) + (event.key === 'ArrowRight' ? 1 : -1)))];
+      target.setAttribute('tabindex', '-1'); next.setAttribute('tabindex', '0'); next.focus();
+    }
+  });
+  for (const type of ['pointerover', 'focusin']) root.addEventListener(type, event => {
+    const target = event.target.closest('.vpa-history-target');
+    if (target && !target.contains(event.relatedTarget)) scheduleHistoryHover(target, type === 'focusin');
+    if (event.target.closest('#vpa-history-tooltip')) clearTimeout(historyHideTimer);
+  });
+  for (const type of ['pointerout', 'focusout']) root.addEventListener(type, event => {
+    if (event.target.closest('.vpa-history-target, #vpa-history-tooltip') && !event.relatedTarget?.closest?.('.vpa-history-target, #vpa-history-tooltip')) {
+      clearTimeout(historyTimer); clearTimeout(historyHideTimer);
+      historyHideTimer = setTimeout(() => closeHistoryHover(true), 200);
+    }
   });
   // The native dialog close event also covers Escape; it does not bubble.
   root.addEventListener('close', event => {
@@ -583,7 +709,7 @@
   }
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') checkFreshness();
-    else pausePreload();
+    else { closeHistoryHover(); pausePreload(); }
   });
   window.addEventListener('focus', checkFreshness);
   window.addEventListener('online', () => checkFreshness({ force: true }));

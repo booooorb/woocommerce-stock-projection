@@ -92,6 +92,10 @@ try {
         for ( $i = 0; $i < 20 && ! StockHistory::baseline_batch(); $i++ ) {}
         foreach ( Reports::PERIODS as $period ) { Reports::report( $period ); Reports::detail( $ids['product'], $period ); Reports::detail( $ids['variant'], $period ); }
         vpas_check( count( Reports::report( '90' )['rows'] ) >= 2, 'Reports and shared-stock graphs read the pre-existing catalog' );
+        $hover = new WP_REST_Request( 'GET', '/veryshop/v1/products/' . $ids['product'] . '/events' );
+        $hover->set_param( 'kind', 'estimated' ); $hover->set_param( 'start', 0 ); $hover->set_param( 'end', time() );
+        $hover_response = rest_do_request( $hover );
+        vpas_check( 200 === $hover_response->get_status() && ! empty( $hover_response->get_data()['events'] ), 'Order-hover details read existing orders within the protected-store SQL audit' );
         vpas_check( ! Reports::settings()['email_enabled'] && 0 === Alerts::run( true )['sent'], 'A fresh installation cannot send stock emails before explicit enablement' );
         vpas_request( 'POST', 'settings', array( 'reorder_days' => 45, 'email_frequency_days' => 7 ) );
         $save_events = 0; $save_watch = static function () use ( &$save_events ) { $save_events++; };
@@ -101,7 +105,7 @@ try {
         vpas_check( 200 === $planning->get_status() && 0 === $save_events && Reports::planning( wc_get_product( $ids['parent'] ) )['on_order'], 'Restock planning writes plugin-only storage and triggers no WooCommerce product saves' );
         Repository::restart(); do { Repository::import_batch(); } while ( ! Repository::state()['complete'] );
         vpas_check( ! $transactions, 'Import and reports issue no START/COMMIT/ROLLBACK transaction commands' );
-        vpas_check( ! $writes, 'Activation, imports, reports, settings, and planning issue zero writes to protected store tables' );
+        vpas_check( ! $writes, 'Activation, imports, reports, order hover, settings, and planning issue zero writes to protected store tables' );
         $before = get_option( 'vpa_safety_before' ); $after = vpas_snapshot(); $changed = array_keys( array_diff_assoc( $before, $after ) );
         vpas_check( ! $changed, 'All existing products, orders, customers, notes, coupons, store settings, config and theme hashes are unchanged' . ( $changed ? ': changed ' . implode( ', ', $changed ) : '' ) );
         wp_set_current_user( $ids['customer'] );

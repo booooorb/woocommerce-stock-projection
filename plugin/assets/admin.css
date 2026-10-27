@@ -71,7 +71,18 @@
 .vpa-segmented { display: flex; gap: 16px; }
 .vpa-segmented button { font-size: 11px; border: 0; background: transparent; color: #697e70; padding: 5px 0 7px; border-bottom: 2px solid transparent; white-space: nowrap; }
 .vpa-segmented button[aria-pressed="true"] { color: #245d40; border-color: var(--green); font-weight: 600; }
-.vpa-graph { width: 100%; min-width: 0; }
+.vpa-graph { width: 100%; min-width: 0; position: relative; }
+.vpa-history-target { stroke: transparent; stroke-width: 1; fill: transparent; pointer-events: all; cursor: pointer; outline: none; }
+.vpa-history-target:hover, .vpa-history-target:focus-visible { stroke: #176b5050; fill: #176b501a; }
+.vpa-history-popover { position: absolute; z-index: 20; width: min(320px, calc(100% - 16px)); max-height: 280px; overflow: auto; background: #fff; border: 1px solid #cad9cf; border-radius: 6px; padding: 12px; box-shadow: 0 6px 24px #163e3326; font-size: 11px; }
+.vpa-history-popover-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.vpa-history-popover-heading .vpa-button { min-height: 24px; padding: 0 6px; }
+.vpa-history-content p { margin: 6px 0; color: var(--muted); }
+.vpa-history-content ul { list-style: none; margin: 0; padding: 0; }
+.vpa-history-content li { display: flex; flex-direction: column; gap: 3px; padding: 9px 0; border-top: 1px solid var(--line); }
+.vpa-history-content small { color: var(--muted); }
+.vpa-history-content a { color: #176b50; text-decoration: underline; }
+.vpa-history-content > .vpa-button { margin: 6px 6px 0 0; }
 .vpa-graph svg { display: block; width: 100%; height: auto; }
 .vpa-svg-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 10px; fill: #74857a; }
 .vpa-svg-amber { fill: #946825; }

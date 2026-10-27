@@ -11,7 +11,7 @@ with ZipFile(target, "w", ZIP_DEFLATED) as archive:
         "assets/admin.js", "assets/admin.css", "assets/read-buffer.js",
         "includes/class-model.php", "includes/class-repository.php",
         "includes/class-stock-history.php", "includes/class-reports.php",
-        "includes/class-alerts.php", "includes/class-plugin.php", "includes/class-safety.php",
+        "includes/class-alerts.php", "includes/class-plugin.php", "includes/class-safety.php", "includes/class-history-events.php",
     ]
     for name in sorted(manifest):
         source = root / "plugin" / name
