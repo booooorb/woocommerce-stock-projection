@@ -1,11 +1,11 @@
 {
   "name": "veryshop-product-analysis",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "private": true,
   "description": "WooCommerce product rankings and transparent linear inventory projections.",
   "scripts": {
     "dev": "node dev/server.mjs",
-    "test": "node dev/buffer-test.mjs && node dev/preload-test.mjs && node dev/test.mjs",
+    "test": "node dev/buffer-test.mjs && node dev/preload-test.mjs && node dev/selection-test.mjs && node dev/test.mjs",
     "package": "python3 dev/package.py",
     "test:safety": "node dev/safety-test.mjs && node dev/safety-test.mjs --legacy && node dev/safety-test.mjs --minimum && node dev/safety-test.mjs --minimum --legacy"
   },

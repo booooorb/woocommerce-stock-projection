@@ -1,64 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFile, writeFile } from 'node:fs/promises';
-import vm from 'node:vm';
+import { writeFile } from 'node:fs/promises';
+import { dashboard } from './dashboard-harness.mjs';
 
-const bufferSource = await readFile(new URL('../plugin/assets/read-buffer.js', import.meta.url), 'utf8');
-const adminSource = await readFile(new URL('../plugin/assets/admin.js', import.meta.url), 'utf8');
 let checks = 0;
 const passed = label => { checks++; console.log(`PASS: ${label}`); };
-
-// Exercise the shipped dashboard controller, with rendering and the network replaced
-// by deterministic fixtures. No browser, real store or live stock writes are used.
-function dashboard() {
-  let now = 0, timerId = 0;
-  const timers = new Map(), handlers = new Map(), calls = [];
-  const on = name => (type, callback) => {
-    const key = `${name}:${type}`;
-    handlers.set(key, [...(handlers.get(key) || []), callback]);
-  };
-  const root = { addEventListener: on('root') };
-  const planning = { id: 'vpa-planning', open: false, showModal() { this.open = true; }, close() { this.open = false; } };
-  const status = { textContent: '' };
-  const connection = { saveData: false, effectiveType: '4g', addEventListener: on('connection') };
-  const navigator = { connection, onLine: true };
-  const document = { visibilityState: 'visible', addEventListener: on('document'), getElementById: id => ({ 'veryshop-analysis': root, 'vpa-planning': planning, 'vpa-buffer-status': status })[id] || null };
-  const window = { VeryShopAnalysis: { api: '/api/', nonce: 'test' }, addEventListener: on('window') };
-  const reports = page => ({ page, pages: 2, rows: (page === 1 ? [1, 2] : [3, 4]).map(id => ({ id })), sync: { complete: true }, revision: 'a' });
-  const env = {
-    calls, document, navigator, connection, planning, status,
-    reply: path => path === 'sync' ? { complete: true, revision: 'a' } : path.startsWith('report?') ? reports(Number(new URLSearchParams(path.split('?')[1]).get('page'))) : { revision: 'a', path },
-    async emit(name, type, event = {}) { for (const callback of handlers.get(`${name}:${type}`) || []) await callback(event); await settle(); },
-    async advance(ms) {
-      const end = now + ms;
-      await settle();
-      while (true) {
-        const next = [...timers].filter(([, timer]) => timer.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
-        if (!next) break;
-        timers.delete(next[0]); now = next[1].at; next[1].callback(); await settle();
-      }
-      now = end; await settle();
-    },
-  };
-  async function settle() { for (let i = 0; i < 25; i++) await Promise.resolve(); }
-  const scope = {
-    document, window, navigator, AbortController, DOMException, URLSearchParams,
-    setTimeout: (callback, delay) => { const id = ++timerId; timers.set(id, { at: now + delay, callback }); return id; },
-    clearTimeout: id => timers.delete(id), setInterval: () => {},
-    fetch: async (url, options) => {
-      const path = url.slice('/api/'.length); calls.push({ path, signal: options.signal });
-      const value = await env.reply(path, options);
-      return { ok: true, json: async () => value };
-    },
-  };
-  vm.runInNewContext(bufferSource, scope);
-  const instrumented = adminSource.replace('  init();\n})();', `  render = () => {};
-  globalThis.controller = { state, buffer, startPreload, checkFreshness, pausePreload };
-})();`);
-  assert.notEqual(instrumented, adminSource, 'Dashboard test hook must match the entry point');
-  vm.runInNewContext(instrumented, scope);
-  Object.assign(scope.controller.state, { loading: false, detailLoading: false, report: reports(1) });
-  return Object.assign(env, scope.controller);
-}
 
 let h = dashboard();
 h.document.visibilityState = 'hidden'; h.startPreload();
@@ -112,7 +57,7 @@ passed('A stalled background request times out so the rest of the graph queue ca
 h = dashboard(); h.document.visibilityState = 'hidden'; h.startPreload();
 h.document.visibilityState = 'visible'; h.reply = () => { throw new Error('sync temporarily unavailable'); };
 await h.emit('window', 'focus');
-h.reply = path => path === 'sync' ? { complete: true, revision: 'a' } : path.startsWith('report?') ? { page: 2, pages: 2, rows: [{ id: 3 }, { id: 4 }], revision: 'a' } : { revision: 'a' };
+h.reply = path => path === 'sync' ? { complete: true, revision: 'a' } : path.startsWith('report?') ? { page: 2, pages: 2, rows: [{ id: 3 }, { id: 4 }], revision: 'a' } : h.detail(Number(path.match(/^products\/(\d+)/)[1]));
 await h.advance(5000);
 assert.ok(h.buffer.peek('products/4?period=90'));
 passed('A failed freshness check does not strand the queue after returning to the dashboard');

@@ -5,10 +5,10 @@
   if (!root || !window.VeryShopAnalysis) return;
   const cfg = window.VeryShopAnalysis;
   const periods = [['30', 'Last month'], ['90', '3 months'], ['180', '6 months'], ['365', 'Year'], ['all', 'All time']];
-  const state = { period: '90', search: '', page: 1, report: null, detail: null, selected: null, tab: 'overview', horizon: 30, detailLoading: false, loading: true, indexing: false, busy: false, settings: null, settingsDraft: null, reorderDraft: null, error: '', notice: '', preview: null };
+  const state = { period: '90', search: '', page: 1, report: null, detail: null, selected: null, detailTarget: null, detailError: '', tab: 'overview', horizon: 30, detailLoading: false, loading: true, indexing: false, busy: false, settings: null, settingsDraft: null, reorderDraft: null, error: '', notice: '', preview: null };
   let reportSeq = 0, detailSeq = 0, searchTimer, observer;
   let activeReportPath, activeDetailPath, preloadTimer, preloadSeq = 0, preloadQueue = [], preloadTargets = [], preloadRunning = false, refreshTimer, checkingFreshness = false;
-  const buffer = new VeryShopReadBuffer((path, signal) => api(path, undefined, signal), { onRevision: scheduleFreshRefresh });
+  const buffer = new VeryShopReadBuffer((path, signal) => api(path, undefined, signal), { onRevision: scheduleFreshRefresh, validate: matchesRead });
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const number = (value, digits = 0) => new Intl.NumberFormat(cfg.locale, { maximumFractionDigits: digits }).format(Number(value) || 0);
   const rate = value => number(value, value > 0 && value < 0.01 ? 4 : 2);
@@ -20,12 +20,27 @@
     const response = await fetch(`${cfg.api}${path}`, { credentials: 'same-origin', cache: 'no-store', signal, headers: { 'X-WP-Nonce': cfg.nonce, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, method: body !== undefined ? 'POST' : 'GET', ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
     let payload;
     try { payload = await response.json(); } catch (_) { throw new Error('The server returned an unreadable response. Check the WordPress error log, then refresh.'); }
-    if (!response.ok) throw new Error(payload.message || `Request failed (${response.status}).`);
+    if (!response.ok) {
+      const error = new Error(payload.message || `Request failed (${response.status}).`);
+      error.status = response.status;
+      throw error;
+    }
     return payload;
   }
 
   const reportPath = (page = state.page) => `report?${new URLSearchParams({ period: state.period, search: state.search, page: String(page), per_page: '10' })}`;
   const detailPath = id => `products/${id}?period=${state.period}`;
+  function matchesDetail(detail, id, period) {
+    return Number(detail?.product?.id) === Number(id) && detail?.period === period && !!detail?.revision && !!detail?.window && Array.isArray(detail?.stock_history?.recorded) && Array.isArray(detail?.stock_history?.reconstructed);
+  }
+  function matchesRead(path, value) {
+    if (path.startsWith('report?')) return !!value?.revision && Array.isArray(value?.rows);
+    const match = path.match(/^products\/(\d+)\?period=([^&]+)$/);
+    return !!match && matchesDetail(value, match[1], match[2]);
+  }
+  function displayedDetail() {
+    return !state.detailLoading && !state.detailError && matchesDetail(state.detail, state.selected, state.period) && (!buffer.revision || state.detail.revision === buffer.revision) ? state.detail : null;
+  }
   const canPreload = () => state.tab === 'overview' && document.visibilityState === 'visible' && !document.getElementById('vpa-planning')?.open && state.report?.sync.complete && !state.loading && !state.detailLoading && !state.indexing && !state.busy && navigator.onLine !== false && !navigator.connection?.saveData && !['slow-2g', '2g'].includes(navigator.connection?.effectiveType);
 
   function pausePreload(except) {
@@ -38,7 +53,7 @@
 
   function bufferStatus() {
     const ready = preloadTargets.filter(path => buffer.peek(path)).length;
-    return preloadRunning || preloadQueue.length ? `Preloading graphs · ${ready} / ${preloadTargets.length} ready` : ready ? `${ready} graphs ready` : '';
+    return preloadRunning || preloadQueue.length ? `Preloading graphs · ${ready} / ${preloadTargets.length} ready` : ready ? `${ready} ${ready === 1 ? 'graph' : 'graphs'} ready` : '';
   }
 
   function updateBufferStatus() {
@@ -158,7 +173,7 @@
       }
     }
     const chart = root.querySelector('#vpa-graph');
-    if (chart && state.detail) {
+    if (chart && displayedDetail()) {
       drawChart(chart);
       observer = new ResizeObserver(() => drawChart(chart));
       observer.observe(chart);
@@ -180,19 +195,25 @@
       <label class="vpa-period-control">Projection<select id="vpa-horizon-select" aria-label="Future projection period">${[30, 60, 90, 180].map(days => `<option value="${days}" ${state.horizon === days ? 'selected' : ''}>Next ${days} days</option>`).join('')}</select></label>
       <form id="vpa-reorder-form" class="vpa-reorder-control"><label for="vpa-reorder-days">Reorder before stockout<span class="vpa-reorder-input"><input id="vpa-reorder-days" name="reorder_days" type="number" min="0" max="3650" step="1" placeholder="Enter days" value="${esc(state.reorderDraft ?? state.settings?.settings.reorder_days ?? '')}" required ${state.busy || !state.settings ? 'disabled' : ''}><span>days</span></span></label><button type="submit" class="vpa-button" ${state.busy || !state.settings ? 'disabled' : ''}>Save</button></form>
       <span class="vpa-date-range">${date(report.window.start)} – ${date(report.window.end)}</span></div>
-      <div class="vpa-workspace">${state.detail ? detailView() : `<section class="vpa-panel vpa-empty">${report.total ? 'Loading stock history…' : 'No products to analyse yet. Add products in WooCommerce, then refresh.'}</section>`}${productListView()}</div></div>`;
+      <div class="vpa-workspace">${detailView()}${productListView()}</div></div>`;
   }
 
   function detailView() {
-    const d = state.detail, p = d.product, history = d.stock_history;
+    const d = displayedDetail();
+    if (!d) {
+      const target = state.detailTarget || state.report?.rows.find(row => row.id === state.selected);
+      const name = target?.name || (state.selected ? `Product #${state.selected}` : 'product');
+      const empty = !state.selected && !state.report?.total;
+      return `<section class="vpa-detail" id="vpa-detail" aria-busy="${!state.detailError && !empty}"><div class="vpa-panel vpa-chart-panel"><div class="vpa-stock-heading"><div><h2 id="vpa-selected-title">${esc(empty ? 'Stock history' : name)}</h2>${target?.sku ? `<span class="vpa-muted">${esc(target.sku)}</span>` : ''}</div></div><div class="vpa-graph-placeholder" role="${state.detailError ? 'alert' : 'status'}"><strong>${esc(empty ? 'No products to analyse yet.' : state.detailError ? `Could not load stock history for ${name}.` : `Loading stock history for ${name}…`)}</strong>${state.detailError ? `<p>${esc(state.detailError)}</p>${button('retry-detail', 'Retry graph', true)}` : empty ? '<p>Add products in WooCommerce, then refresh.</p>' : ''}</div></div></section>`;
+    }
+    const p = d.product, history = d.stock_history;
     const reordered = p.reorder_in !== null && p.reorder_in <= 0;
     const reconstructed = history.reconstructed.length > 0;
     const rows = [...history.reconstructed.map(point => ({ ...point, source: 'Estimated from orders' })), ...history.recorded.map(point => ({ ...point, source: 'Recorded' }))];
     const note = reconstructed ? `History before ${moment(history.recorded_from)} is estimated from orders, not recorded stock. Earlier restocks are unknown.` : history.recorded_from > history.start ? 'Stock recording started within this period. Earlier levels were not recorded.' : '';
     return `<section class="vpa-detail" id="vpa-detail" aria-busy="${state.detailLoading}"><div class="vpa-panel vpa-chart-panel">
       <div class="vpa-stock-heading"><div><h2 id="vpa-selected-title">${esc(p.name)}</h2><span class="vpa-muted">${esc(p.sku || 'No SKU')}${p.shared_stock ? ' · shared inventory' : ''}</span></div><div class="vpa-current-stock"><strong>${p.stock === null ? '—' : number(p.stock, 2)}</strong><span>units now</span></div></div>
-      ${state.detailLoading ? '<div class="vpa-chart-context" role="status">Updating…</div>' : ''}
-      <div id="vpa-graph" class="vpa-graph"></div>
+      <div id="vpa-graph" class="vpa-graph" data-product="${p.id}" data-period="${d.period}"></div>
       <div class="vpa-chart-caption"><div class="vpa-legend"><span><i class="vpa-line-key"></i> Stock history</span><span><i class="vpa-line-key vpa-dashed-key"></i> Projection</span><span><i class="vpa-line-key vpa-reorder-key"></i> Reorder level</span></div></div>
       ${note ? `<p class="vpa-history-note">${esc(note)}</p>` : ''}
       <dl class="vpa-inline-facts"><div><dt>Depletion</dt><dd>${rate(p.rate)} / day</dd></div><div><dt>Days left</dt><dd>${p.days_remaining === null ? '—' : number(p.days_remaining, 1)}</dd></div><div class="${reordered && !p.planning.on_order ? 'vpa-fact-overdue' : ''}"><dt>Reorder</dt><dd>${date(p.reorder_date)}</dd></div><div><dt>Stock-out</dt><dd>${p.stock !== null && p.stock <= 0 ? 'Out now' : date(p.stockout_date)}</dd></div></dl>
@@ -245,7 +266,10 @@
   }
 
   function drawChart(host) {
-    const d = state.detail, p = d.product, history = d.stock_history;
+    const d = displayedDetail();
+    if (!host.isConnected) return;
+    if (!d || host.dataset.product !== String(d.product.id) || host.dataset.period !== d.period) { host.innerHTML = ''; return; }
+    const p = d.product, history = d.stock_history;
     if (p.stock === null) {
       host.innerHTML = `<div class="vpa-chart-empty">${icon('chart-line')}<strong>Stock quantities are not tracked for this product.</strong><span>Enable inventory tracking in WooCommerce to view stock history.</span></div>`;
       return;
@@ -329,9 +353,12 @@
     pausePreload(path);
     if (activeReportPath && activeReportPath !== path) buffer.cancel(activeReportPath);
     activeReportPath = path;
-    if (state.detail && state.detail.period !== state.period) {
+    if (forceDetail || (state.detail && state.detail.period !== state.period)) {
       detailSeq++;
       if (activeDetailPath) buffer.cancel(activeDetailPath);
+      state.detailTarget = state.detail?.product || state.detailTarget;
+      state.detail = null;
+      state.detailError = '';
       state.detailLoading = true;
     }
     state.loading = !buffer.peek(path);
@@ -342,43 +369,61 @@
       state.report = result;
       state.page = result.page;
       if (!state.selected && result.rows.length) state.selected = result.rows[0].id;
-      if (state.selected && (forceDetail || !state.detail || state.detail.period !== state.period)) await loadDetail(state.selected, false);
+      if (state.selected && (forceDetail || !displayedDetail())) await loadDetail(state.selected);
     } catch (error) {
       if (sequence === reportSeq) {
         state.detailLoading = false;
         if (error.name !== 'AbortError') state.error = error.message;
+        if (!state.detail && state.selected) state.detailError = 'The product list could not be refreshed. Retry the graph or refresh the page.';
       }
     }
     finally { if (sequence === reportSeq) { state.loading = false; render(); startPreload(); } }
   }
 
-  async function loadDetail(id, redraw = true) {
+  async function loadDetail(id) {
     const sequence = ++detailSeq;
     const period = state.period;
     const path = detailPath(id);
     pausePreload(path);
     if (activeDetailPath && activeDetailPath !== path) buffer.cancel(activeDetailPath);
     activeDetailPath = path;
-    const previous = state.detail?.product.id ?? null;
+    state.detailTarget = state.report?.rows.find(row => row.id === Number(id)) || (state.detail?.product.id === Number(id) ? state.detail.product : state.detailTarget?.id === Number(id) ? state.detailTarget : { id: Number(id), name: `Product #${id}` });
     state.selected = Number(id);
-    state.detailLoading = !buffer.peek(path);
-    if (redraw) render();
+    state.detail = null;
+    state.detailError = '';
+    const cached = buffer.peek(path);
+    state.detailLoading = !cached;
+    if (cached) acceptDetail(cached);
+    render();
+    if (cached) { startPreload(); return; }
     try {
-      const detail = await buffer.get(path);
-      if (sequence !== detailSeq || period !== state.period) return;
-      const now = Math.floor(Date.now() / 1000);
-      const recorded = detail.stock_history.recorded.map((point, index, points) => index === points.length - 1 ? { ...point, time: now } : point);
-      const product = { ...detail.product, stockout_date: offsetDate(detail.product.days_remaining, now), reorder_date: offsetDate(detail.product.reorder_in, now) };
-      state.detail = { ...detail, product, stock_history: { ...detail.stock_history, today: now, recorded } };
-      state.detailLoading = false;
-      if (redraw) { render(); startPreload(); }
+      let detail;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try { detail = await buffer.get(path); break; }
+        catch (error) {
+          if (sequence !== detailSeq || period !== state.period || attempt || ['AbortError', 'TimeoutError'].includes(error.name) || (error.status >= 400 && error.status < 500)) throw error;
+        }
+      }
+      if (sequence !== detailSeq || period !== state.period || Number(id) !== state.selected) return;
+      acceptDetail(detail);
+      render(); startPreload();
     } catch (error) {
-      if (sequence !== detailSeq) return;
-      if (error.name !== 'AbortError') state.selected = previous;
+      if (sequence !== detailSeq || period !== state.period) return;
+      state.detail = null;
       state.detailLoading = false;
-      if (error.name !== 'AbortError') state.error = error.message;
-      if (redraw) { render(); startPreload(); }
+      state.detailError = error.name === 'AbortError' ? 'The read was interrupted. Please retry the selected product.' : error.message;
+      render(); startPreload();
     }
+  }
+
+  function acceptDetail(detail) {
+    const now = Math.floor(Date.now() / 1000);
+    const recorded = detail.stock_history.recorded.map((point, index, points) => index === points.length - 1 ? { ...point, time: now } : point);
+    const product = { ...detail.product, stockout_date: offsetDate(detail.product.days_remaining, now), reorder_date: offsetDate(detail.product.reorder_in, now) };
+    state.detail = { ...detail, product, stock_history: { ...detail.stock_history, today: now, recorded } };
+    state.detailTarget = product;
+    state.detailLoading = false;
+    state.detailError = '';
   }
 
   async function indexOrders(restart) {
@@ -434,6 +479,7 @@
       return;
     }
     const action = target.dataset.action;
+    if (action === 'retry-detail') { await loadDetail(state.selected); return; }
     if (action === 'refresh') { state.error = ''; await refreshData(); if (state.report && !state.report.sync.complete) indexOrders(false); }
     if (action === 'reindex') await indexOrders(true);
     if (action === 'previous' || action === 'next') { state.page += action === 'next' ? 1 : -1; await loadReport(); }

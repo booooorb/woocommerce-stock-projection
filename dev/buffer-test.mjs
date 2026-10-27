@@ -98,8 +98,8 @@ assert.equal(raced.revision, 'b');
 assert.equal(raced.peek(product(1)), null);
 passed('An older request finishing last cannot roll the buffer back to an old revision');
 
-const timers = new Map(); let timerId = 0, finishSelected;
-const timedScope = { AbortController, DOMException, setTimeout: callback => { const id = ++timerId; timers.set(id, callback); return id; }, clearTimeout: id => timers.delete(id) };
+const timers = new Map(); let timerId = 0, finishSelected, lastDeadline;
+const timedScope = { AbortController, DOMException, setTimeout: (callback, delay) => { lastDeadline = delay; const id = ++timerId; timers.set(id, callback); return id; }, clearTimeout: id => timers.delete(id) };
 vm.runInNewContext(source, timedScope);
 const timed = new timedScope.VeryShopReadBuffer(() => new Promise(resolve => { finishSelected = resolve; }));
 const stalled = timed.get(product(1), { background: true });
@@ -112,16 +112,22 @@ passed('A timed-out background read releases its pending slot even if transport 
 const promoted = timed.get(product(2), { background: true });
 await Promise.resolve();
 const foreground = timed.get(product(2));
-assert.equal(timers.size, 0);
+assert.equal(timers.size, 1); assert.equal(lastDeadline, 30000);
 finishSelected({ revision: 'a' }); await Promise.all([promoted, foreground]);
 assert.ok(timed.peek(product(2)));
-passed('Selecting a background read removes its optional preload deadline and keeps the same request');
+passed('Selecting a background read replaces its preload deadline with a fresh foreground deadline and reuses the request');
 
 const abandoned = timed.get(product(3), { background: true });
 const abandonedRejected = assert.rejects(abandoned, { name: 'AbortError' });
 await Promise.resolve(); timed.cancel(product(3)); await abandonedRejected;
 assert.equal(timers.size, 0); assert.equal(timed.pending.size, 0);
 passed('Cancelling a stalled transport settles immediately and clears its timeout');
+
+const stuckForeground = timed.get(product(4));
+const foregroundRejected = assert.rejects(stuckForeground, { name: 'TimeoutError' });
+await Promise.resolve(); timers.values().next().value(); await foregroundRejected;
+assert.equal(timed.pending.size, 0); assert.equal(timers.size, 0);
+passed('A selected graph has a finite deadline and a distinguishable timeout for the retry UI');
 const summary = `ALL BUFFER TESTS PASSED (${checks} checks)\n`;
 await writeFile(new URL('../.local/buffer-test-results.txt', import.meta.url), summary);
 console.log(summary);

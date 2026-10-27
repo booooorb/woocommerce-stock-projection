@@ -1,6 +1,6 @@
 # Safety audit: VeryShop Product Analysis 1.5.0
 
-**Historical audit:** This report records version 1.5.0. Version 1.5.2 has separate frontend/preload validation in VERIFICATION.md; the release identity below identifies the audited 1.5.0 archive, not the current ZIP.
+**Historical audit:** This report records version 1.5.0. Later versions have separate frontend/preload validation in VERIFICATION.md; the release identity below identifies the audited 1.5.0 archive, not the current ZIP.
 
 Reviewed on October 26, 2026. **365 checks passed.** This is a code review and isolated test result, not a guarantee for an untested production website.
 

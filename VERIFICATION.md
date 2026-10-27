@@ -1,10 +1,10 @@
-# Verification: VeryShop Product Analysis 1.5.2
+# Verification: VeryShop Product Analysis 1.5.3
 
 **Story:** An administrator views inventory history and depletion on a large stock graph, distinguishes Today from future projection, and searches or pages through products in a sidebar while keeping the selected graph visible. WooCommerce stock hooks record deductions and replenishments; authenticated REST endpoints return history and the fitted inventory function. A numeric field above the graph sets N days before projected stockout; the saved global value drives the graph threshold, reorder dates, statuses, and email checks.
 
 ## Integration results
 
-**Version 1.5.2: 245 checks passed — 216 WordPress integration checks, 16 JavaScript buffer checks, and 13 dashboard preload checks.** Runtime: WordPress 7.1.3, WooCommerce 11.2.1, PHP 8.3.33, using the official WordPress Playground PHP/SQLite runtime. Current logs are `.local/test-results.txt`, `.local/buffer-test-results.txt`, and `.local/preload-test-results.txt`. The separate 136 safety checks across four runtime/storage combinations were last run for the 1.5.0 safety review; that historical audit is recorded in SAFETY-AUDIT.md and was not rerun for this frontend update.
+**Version 1.5.3: 260 checks passed — 216 WordPress integration checks, 17 JavaScript buffer checks, 13 dashboard preload checks, and 14 product-selection checks.** Runtime: WordPress 7.1.3, WooCommerce 11.2.1, PHP 8.3.33, using the official WordPress Playground PHP/SQLite runtime. Current logs are `.local/test-results.txt`, `.local/buffer-test-results.txt`, `.local/preload-test-results.txt`, and `.local/selection-test-results.txt`. The separate 136 safety checks across four runtime/storage combinations were last run for the 1.5.0 safety review; that historical audit is recorded in SAFETY-AUDIT.md and was not rerun for this frontend update.
 
 | Boundary | Result | Evidence |
 | --- | --- | --- |
@@ -112,3 +112,16 @@ Visible products warm before the next-page report so a slow report cannot delay 
 The hidden-startup regression failed against the prior code and passed after the fix. All 16 buffer checks and 13 dashboard-controller checks passed, covering recovery, retry, ordering, cancellation/timeout cleanup, foreground promotion, pause conditions, period switching, and stale responses. All 216 existing WordPress integration checks passed again (108 HPOS and 108 legacy); PHP parsing and JavaScript syntax passed. The four-profile safety matrix was not rerun because no analytics write path changed.
 
 Targeted browser verification confirmed Escape resumed the queue (14 / 20 ready), page navigation preserved the selected graph, a preloaded Cotton Napkins graph opened correctly, Settings returned to the graph, and the nearby-page buffer completed (11 graphs ready on page 2; 20 on page 1). The saved 90-day reorder trigger was retained. Browser warning/error logs were empty. Screenshot: `.local/preloading-fixed.png`.
+
+
+## Product-selection correctness 1.5.3
+
+The prior controller highlighted the newly selected row while still rendering the old detail object. It drew the old graph during an uncached read and reverted to the previous selection after a failure. Even a cache hit rendered the old detail once before its resolved promise was applied. The prior preload suite replaced rendering with a no-op and did not cover this boundary.
+
+The controller now removes the previous detail before switching. A matching cached payload is adopted synchronously before rendering; a miss displays a named loading panel without the prior SVG, quantities, dates, or planning controls. A failed read keeps the requested product selected and displays a Retry graph action. Transient network/server failures and mismatched payloads get at most one fresh foreground fallback. Authorization/not-found/rate-limit responses, cancellation and timeouts are not automatically retried. Selected reads have a 30-second deadline; selecting a pending preload replaces its 15-second optional deadline with a new foreground deadline and reuses the existing transport.
+
+Buffer reads validate product identity, period, required chart structure, and revision. Invalid cached entries are discarded and do not count as ready. The render boundary independently requires matching selected identity/period/revision, and chart hosts carry product and period attributes checked before drawing or resizing. Sequence checks discard responses from older selections. No artificial waiting was added to valid cache hits, and no order/product/stock write path changed.
+
+A new shared dashboard harness renders the real overview/detail/list markup against deterministic network fixtures. The regression reproduced the old Product 1 chart while Product 2 was selected before the fix. Fourteen selection checks now cover cold/warm rendering, zero extra requests for a cache hit, foreground fallback, manual retry, mismatched products/periods/revisions, rapid clicks, period/report failures, late resize callbacks, deadlines, and promotion of a failed preload. The existing 17 buffer and 13 preload checks also pass. All 216 WordPress checks passed again across HPOS and legacy storage; PHP parsing and JavaScript syntax passed. The historical four-profile safety matrix was not rerun for this frontend-only change.
+
+Browser verification: switching from Everyday Tote to buffered Ceramic Travel Cup produced title Ceramic Travel Cup, selected product ID 11 and graph product ID 11. Navigating to page 3 retained the selected cup graph until Wool Desk Mat was selected. That switch produced selected/graph product ID 80 and different SVG path data. Browser checks cover real rendering; deterministic fixtures cover delayed/failing transports. The saved reorder trigger remained 90 days. Screenshot: `.local/product-selection-fixed.png`.
