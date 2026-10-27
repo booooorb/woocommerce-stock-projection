@@ -399,7 +399,7 @@
       const link = order?.url && /^https?:\/\//i.test(order.url) ? `<a href="${esc(order.url)}" target="_blank" rel="noopener noreferrer">${esc(orderLabel)} ↗</a>` : esc(orderLabel);
       const change = estimated ? `${number(event.units, 4)} units ordered · ${date(event.date)}` : `${event.before === null ? 'Unknown' : number(event.before, 4)} → ${number(event.after, 4)} units · ${moment(event.time)}`;
       const note = estimated ? (order?.status || '') : order ? (event.delta > 0 ? 'Stock restored for this order' : 'Recorded order stock reduction') : (event.delta > 0 ? 'Stock increase; order association not recorded' : 'Order association was not recorded for this change');
-      return `<li><strong>${link}</strong><span>${esc(change)}</span><small>${esc(note)}</small></li>`;
+      return `<li><strong>${link}</strong>${order ? `<span class="vpa-history-customer">Customer: ${esc(order.customer_name || 'Customer name unavailable')}</span>` : ''}<span>${esc(change)}</span><small>${esc(note)}</small></li>`;
     }).join('');
     return `${estimated ? '<p>Orders contributing to this estimated interval. Historical restocks are unknown.</p>' : '<p>Recorded changes in this plotted interval.</p>'}<ul>${rows || '<li>No linked changes found in this interval.</li>'}</ul>${data.page > 1 ? button('history-previous', 'Previous') : ''}${data.has_more ? button('history-next', 'More orders') : ''}`;
   }

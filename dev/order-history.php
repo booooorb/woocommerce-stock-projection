@@ -15,6 +15,8 @@ function vpa_latest_observation( int $id ): array {
 
 $hover_product = vpa_product( 'Order hover fixture', 100 );
 $hover_order = vpa_order( array( array( $hover_product, 3 ) ), 0, 'pending' );
+$hover_order->set_billing_first_name( 'Avery' ); $hover_order->set_billing_last_name( 'Chen' );
+$hover_order->set_billing_email( 'private-customer@example.test' ); $hover_order->set_billing_address_1( 'Private test address' ); $hover_order->save();
 $initial = vpa_latest_observation( $hover_product->get_id() );
 remove_filter( 'woocommerce_can_reduce_order_stock', '__return_false' );
 wc_reduce_stock_levels( $hover_order );
@@ -25,7 +27,8 @@ vpa_check( vpa_near( $drop['previous_quantity'], 100 ) && vpa_near( $drop['quant
 $args = array( 'kind' => 'recorded', 'start' => strtotime( $initial['recorded_at'] . ' UTC' ), 'end' => time(), 'start_id' => (int) $initial['id'], 'end_id' => (int) $drop['id'], 'page' => 1 );
 $response = vpa_events( $hover_product->get_id(), $args ); $body = $response->get_data();
 vpa_check( 200 === $response->get_status() && 1 === count( $body['events'] ) && vpa_near( $body['events'][0]['delta'], -3 ) && $body['events'][0]['order']['number'] === (string) $hover_order->get_order_number(), 'Hover endpoint returns the correct order, exact before/after quantities and delta' );
-vpa_check( str_contains( $body['events'][0]['order']['url'], 'action=edit' ) && ! str_contains( wp_json_encode( $body ), 'billing' ) && ! str_contains( wp_json_encode( $body ), 'customer_id' ), 'Hover returns an HPOS-aware edit link and no customer details' );
+vpa_check( str_contains( $body['events'][0]['order']['url'], 'action=edit' ) && ! str_contains( wp_json_encode( $body ), 'billing' ) && ! str_contains( wp_json_encode( $body ), 'customer_id' ) && ! str_contains( wp_json_encode( $body ), 'private-customer@example.test' ) && ! str_contains( wp_json_encode( $body ), 'Private test address' ), 'Hover returns an HPOS-aware edit link without customer contact details' );
+vpa_check( 'Avery Chen' === $body['events'][0]['order']['customer_name'], 'A named guest order displays the customer billing name in hover details' );
 $read_revision = Reports::revision(); $source_order = wp_json_encode( wc_get_order( $hover_order->get_id() )->get_data() );
 vpa_events( $hover_product->get_id(), $args );
 vpa_check( $read_revision === Reports::revision() && $source_order === wp_json_encode( wc_get_order( $hover_order->get_id() )->get_data() ), 'Hover reads do not mutate the source order or invalidate graph caches' );
@@ -49,6 +52,7 @@ vpa_check( vpa_near( wc_get_product( $error_product->get_id() )->get_stock_quant
 $args_estimated = array( 'kind' => 'estimated', 'start' => ( new DateTimeImmutable( 'today', wp_timezone() ) )->getTimestamp(), 'end' => time(), 'page' => 1 );
 $estimated = vpa_events( $constant->get_id(), $args_estimated )->get_data();
 vpa_check( 1 === count( $estimated['events'] ) && vpa_near( $estimated['events'][0]['units'], 5 ) && ! isset( $estimated['events'][0]['before'] ), 'Estimated dips expose contributing indexed orders without pretending to know recorded stock levels' );
+vpa_check( 'Guest customer' === $estimated['events'][0]['order']['customer_name'], 'Orders without a stored customer name have a clear guest fallback' );
 $unrelated = vpa_events( $hover_product->get_id(), array_merge( $args, array( 'start_id' => 0, 'end_id' => (int) $linked[1]['id'] ) ) )->get_data();
 vpa_check( ! array_filter( $unrelated['events'], static function ( $event ) use ( $shared_order ) { return ( $event['order']['number'] ?? '' ) === (string) $shared_order->get_order_number(); } ), 'Hover queries cannot leak another stock pool into the selected product interval' );
 for ( $i = 0; $i < 23; $i++ ) { StockHistory::store( $hover_product->get_id(), 80 - $i, time(), 'fixture' ); }

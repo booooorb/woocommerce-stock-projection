@@ -62,7 +62,10 @@ final class HistoryEvents {
 
     private static function order( int $id ): array {
         $order = wc_get_order( $id );
+        $customer_name = $order ? trim( (string) $order->get_formatted_billing_full_name() ) : '';
+        if ( '' === $customer_name ) { $customer_name = $order && ! $order->get_customer_id() ? 'Guest customer' : 'Customer name unavailable'; }
         return array( 'number' => $order ? (string) $order->get_order_number() : (string) $id,
+            'customer_name' => $customer_name,
             'url' => $order ? esc_url_raw( $order->get_edit_order_url(), array( 'http', 'https' ) ) : null,
             'status' => $order ? wc_get_order_status_name( $order->get_status() ) : 'Order unavailable' );
     }

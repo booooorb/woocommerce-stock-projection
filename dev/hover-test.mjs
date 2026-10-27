@@ -12,7 +12,7 @@ function fixture() {
   h.nodes['vpa-history-tooltip'] = panel;
   const host = { clientWidth: 800, clientHeight: 480 };
   const target = { dataset: { historyIndex: '0', x: '300', y: '200' }, closest: () => host };
-  h.reply = () => ({ product_id: 1, kind: 'recorded', revision: 'a', page: 1, has_more: false, events: [{ before: 100, after: 10, delta: -90, time: 1793059200, source: 'order', order: { number: '123', url: 'https://example.test/wp-admin/post.php?post=123&action=edit', status: 'Completed' } }] });
+  h.reply = () => ({ product_id: 1, kind: 'recorded', revision: 'a', page: 1, has_more: false, events: [{ before: 100, after: 10, delta: -90, time: 1793059200, source: 'order', order: { number: '123', customer_name: 'Avery Chen', url: 'https://example.test/wp-admin/post.php?post=123&action=edit', status: 'Completed' } }] });
   return Object.assign(h, { panel, content, target });
 }
 
@@ -21,6 +21,7 @@ assert.equal(h.calls.length, 0);
 h.scheduleHistoryHover(h.target); await h.advance(149); assert.equal(h.calls.length, 0);
 await h.advance(1); assert.equal(h.calls.length, 1);
 assert.match(h.content.innerHTML, /Order #123/); assert.match(h.content.innerHTML, /100 → 10 units/);
+assert.match(h.content.innerHTML, /Customer: Avery Chen/);
 passed('Order hydration is lazy, debounced and shows the order with its actual stock change');
 
 h.closeHistoryHover(); h.showHistoryHover(h.target); await h.advance(0);
@@ -52,9 +53,10 @@ assert.match(h.content.innerHTML, /did not match this graph/); assert.match(h.co
 passed('Mismatched order-detail replies are rejected and offer retry');
 
 h = fixture();
-const escaped = h.historyContent({ kind: 'estimated', page: 1, events: [{ date: '2026-10-27', units: 0.125, order: { number: '<img onerror=alert(1)>', url: 'javascript:alert(1)', status: '<script>x</script>' } }] });
+const escaped = h.historyContent({ kind: 'estimated', page: 1, events: [{ date: '2026-10-27', units: 0.125, order: { number: '<img onerror=alert(1)>', customer_name: '<img src=x onerror=alert(1)>', url: 'javascript:alert(1)', status: '<script>x</script>' } }] });
 assert.doesNotMatch(escaped, /<img|<script|href="javascript:/);
 assert.match(escaped, /0.125 units ordered/); assert.match(escaped, /estimated interval/);
+assert.match(escaped, /Customer: &lt;img/);
 passed('Order labels and URLs are escaped, fractional quantities survive and estimated history stays labelled');
 
 h = fixture();
@@ -71,6 +73,10 @@ assert.equal(segments.length, 3); assert.equal(segments[0].start, 101);
 assert.equal(segments[1].start_id, 5); assert.equal(segments[1].end_id, 6);
 assert.equal(segments[2].after, 35);
 passed('Hit targets preserve same-second stock changes, estimated boundaries and restocking intervals');
+
+const unlinked = h.historyContent({ kind: 'recorded', page: 1, events: [{ before: 10, after: 8, delta: -2, time: 1793059200, order: null }] });
+assert.doesNotMatch(unlinked, /vpa-history-customer/); assert.match(unlinked, /No linked order/);
+passed('An unlinked stock change does not invent a customer identity');
 
 const summary = `ALL HOVER TESTS PASSED (${checks} checks)\n`;
 await writeFile(new URL('../.local/hover-test-results.txt', import.meta.url), summary);

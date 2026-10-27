@@ -1,10 +1,10 @@
-# Verification: VeryShop Product Analysis 1.6.0
+# Verification: VeryShop Product Analysis 1.6.1
 
 **Story:** An administrator views inventory history and depletion on a large stock graph, distinguishes Today from future projection, and searches or pages through products in a sidebar while keeping the selected graph visible. WooCommerce stock hooks record deductions and replenishments; authenticated REST endpoints return history and the fitted inventory function. A numeric field above the graph sets N days before projected stockout; the saved global value drives the graph threshold, reorder dates, statuses, and email checks.
 
 ## Integration results
 
-**Version 1.6.0: 454 checks passed — 250 WordPress integration checks, 64 JavaScript checks, and 140 store-preservation checks across four configurations.** Runtime: WordPress 7.1.3, WooCommerce 11.2.1, PHP 8.3.33, using the official WordPress Playground PHP/SQLite runtime. Current logs are `.local/test-results.txt`, `.local/buffer-test-results.txt`, `.local/preload-test-results.txt`, `.local/selection-test-results.txt`, `.local/freshness-test-results.txt`, and `.local/hover-test-results.txt`. The safety matrix was rerun for 1.6.0 on current and minimum supported platform branches, each with HPOS and legacy order storage (35 checks each). Logs are `.local/safety-*-results.txt`; SAFETY-AUDIT.md retains the historical review and the current update. Tests use Playground PHP/SQLite; native production MySQL/MariaDB and the merchant’s actual extensions remain untested.
+**Version 1.6.1: 319 checks passed — 254 WordPress integration checks and 65 JavaScript checks.** Runtime: WordPress 7.1.3, WooCommerce 11.2.1, PHP 8.3.33, using the official WordPress Playground PHP/SQLite runtime. Current logs are `.local/test-results.txt`, `.local/buffer-test-results.txt`, `.local/preload-test-results.txt`, `.local/selection-test-results.txt`, `.local/freshness-test-results.txt`, and `.local/hover-test-results.txt`. The safety matrix was last rerun for 1.6.0 on current and minimum supported platform branches, each with HPOS and legacy order storage (35 checks each); it was not rerun for this read-only customer-name field change. Logs are `.local/safety-*-results.txt`; SAFETY-AUDIT.md retains the historical review and the current update. Tests use Playground PHP/SQLite; native production MySQL/MariaDB and the merchant’s actual extensions remain untested.
 
 | Boundary | Result | Evidence |
 | --- | --- | --- |
@@ -153,3 +153,12 @@ The new endpoint requires analytics access plus order-edit permission, returns n
 Seventeen additional integration checks ran in each order-storage mode, including real stock-reduction hooks, exact line associations, shared inventory, manual and ambiguous changes, restoration, annotation-write failure, read-only payloads, authorization, pagination, and a real old-table migration preserving prior rows. Nine new JavaScript checks cover lazy/cached/expired reads, cancellation, revision and identity safeguards, escaping, bounded memory, and interval boundaries. All prior JavaScript checks passed. The four preservation audits now include an order-hover read inside protected-table SQL observation and whole-store hashes; all passed.
 
 Browser verification used Everyday Tote. A recorded dip displayed its exact 224 → 217 quantity change and an explicit unlinked notice. With Year selected, an estimated dip displayed Order #70, 40 units ordered on November 3, 2025, and its WooCommerce edit link. Keyboard Enter opened both panels and Escape dismissed them; browser warning/error logs were empty. The saved 90-day reorder trigger was retained. Screenshot: `.local/order-hover.png`.
+
+
+## Customer name in hover 1.6.1
+
+Each linked order now includes its stored billing first/last name, displayed as Customer: Name beneath its order number. This also works for named guest orders. A guest order without a stored name says Guest customer; a registered or unavailable order without a name says Customer name unavailable. Unlinked stock changes do not invent a customer identity. Shipping recipients are not substituted for purchasers.
+
+The existing manage_woocommerce and edit_shop_orders checks still protect the endpoint. The additional field is hydrated only on hover, with the same bounded session cache; graph preloads and analytics tables still contain no customer names. Names are escaped before rendering, and no customer email, address, phone or customer ID is added. There is no schema or stock/order write-path change.
+
+All 127 integration checks passed in each of HPOS and legacy storage (254 total), including the exact stored name on a real named guest order, missing-name fallback, exclusion of test contact fields, permission rejection and unchanged source-order data after reads. The 65 JavaScript checks passed, including customer-name rendering/escaping and absence of fabricated names on unlinked changes. Syntax and ZIP integrity/source correspondence passed. The previous 1.6.0 preservation matrix remains historical evidence; it was not rerun for this payload/display-only change.
