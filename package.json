@@ -1,6 +1,6 @@
 {
   "name": "veryshop-product-analysis",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "private": true,
   "description": "WooCommerce product rankings and transparent linear inventory projections.",
   "scripts": {

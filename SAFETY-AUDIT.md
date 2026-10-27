@@ -102,3 +102,10 @@ Current functional checks passed 153 assertions per order-storage mode; all 74 J
 The development demo correction is restricted to local demo fixtures and omitted from the 12-file production archive. It rebuilds stock-only demo observations from their existing demo order items and verifies current WooCommerce quantities stay unchanged. The shipped plugin does not guess or backfill associations on older real observations. Manual inventory changes and unsupported/custom stock paths can have no provable order association; those remain unlinked.
 
 Release 1.7.1 archive: `dist/veryshop-product-analysis.zip`; 12 production files; SHA-256 `69cc21d12d46c193631558c575cb71bfced53700111067f9a8d958e7b03cd0c8`.
+
+
+## Overdue display boundary 1.7.2 — October 27, 2026
+
+This release changes only the dashboard presentation of an overdue period and the asset/release version. When the displayed history is entirely at or below the reorder level, its start becomes the displayed overdue date and full-history shading boundary. The source projection and email triggers remain unchanged. All 76 JavaScript assertions passed. Backend integration and the four preservation profiles were not rerun; their 1.7.1 results and minimum-version refund-query limitation above remain the recorded evidence. The archive was checked against all 12 production source files and contains no README or development fixtures.
+
+Release 1.7.2 SHA-256: `65a1b7750c90f7c2a7c499cefa3edac429fe6f9edc012b9457497b26a68744c3`.

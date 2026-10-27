@@ -1,10 +1,12 @@
-# Verification: VeryShop Product Analysis 1.7.1
+# Verification: VeryShop Product Analysis 1.7.2
 
 **Story:** An administrator views inventory history and depletion on a large stock graph, distinguishes Today from future projection, and searches or pages through products in a sidebar while keeping the selected graph visible. WooCommerce stock hooks record deductions and replenishments; authenticated REST endpoints return history and the fitted inventory function. A numeric field above the graph sets N days before projected stockout; the saved global value drives the graph threshold, reorder dates, statuses, and email checks.
 
 ## Integration results
 
-**Version 1.7.1: 574 assertions across passing suites — 306 current WordPress integration checks, 74 JavaScript checks, 54 minimum-version stock-link checks, and 140 preservation assertions.** Current integration runtime is WordPress 7.1.3 / WooCommerce 11.2.1 / PHP 8.3.33, with 153 checks each for HPOS and legacy storage. The focused order-link suite passed 27 checks in each storage mode on WordPress 6.6.10 / WooCommerce 9.0.0 / PHP 8.0.30. The four preservation profiles passed 35 checks each.
+**Version 1.7.2: all 76 JavaScript assertions passed**, including two new overdue-boundary regressions. Backend logic and write paths did not change; the backend integration, compatibility and safety suites were not rerun for this UI update.
+
+**Prior version 1.7.1: 574 assertions across passing suites — 306 current WordPress integration checks, 74 JavaScript checks, 54 minimum-version stock-link checks, and 140 preservation assertions.** Current integration runtime is WordPress 7.1.3 / WooCommerce 11.2.1 / PHP 8.3.33, with 153 checks each for HPOS and legacy storage. The focused order-link suite passed 27 checks in each storage mode on WordPress 6.6.10 / WooCommerce 9.0.0 / PHP 8.0.30. The four preservation profiles passed 35 checks each.
 
 The expanded full minimum-version suite did **not** pass: its existing refunded-quantity/ranking fixture returned 7 units instead of 5. A separate read found the WC 9 refund query returned no refunds although a refund row existed. The minimum-version stock-link suite runs independently of that ranking fixture; its passing result is not certification of the entire older-version suite. This failure remains unresolved and is excluded from the passing assertion total.
 
@@ -196,3 +198,14 @@ Eight added integration assertions per current storage mode cover admin increase
 The local demo's old synthetic daily drops were stock-only fixtures. A development-only migration now reconstructs those fixtures directly from existing dated `veryshop-demo` order items, adding their exact order/item IDs at construction. It preserves real current stock and source WooCommerce orders, keeps synthetic restocks separate, runs once and is excluded from the production archive. No production observation is retrospectively assigned an order by timestamp or quantity guessing. Older unlinked observations and manual/initial/restock changes without order evidence stay unlinked.
 
 Browser verification: Everyday Tote's October 19 recorded drop displayed Order #20, Guest customer, 291 → 240 units and its edit-order link. A 600-unit November 10 preview had green path endpoint `(341.77,233.10)` and blue start at that same coordinate, followed by the vertical delivery jump and blue decline to February 10. There were no shared line segments or alternative green tail. The test preview was cancelled; real stock stayed 240, the reorder trigger stayed 90 days, and no plan was persisted. Browser warning/error logs were empty. Screenshots: `.local/recorded-order-linked.png` and `.local/restock-no-overlap.png`.
+
+
+## Entire history overdue 1.7.2
+
+If every displayed stock observation is at or below the reorder level, with history covering the left edge, the graph uses that left edge as its overdue date instead of the backwards-extrapolated crossing. The light-red band covers the complete historical interval through Today. The marker, exact-date tooltip, displayed Reorder date and days-overdue badge use that same date. A calculated crossing earlier than the graph also uses the graph start. Switching the history period recalculates the display boundary. A period with stock above the reorder level retains its normal projected crossing; incomplete history is not assumed to have always been overdue.
+
+This is a display rule for the requested edge case, not proof of the actual first-ever reorder date. Product data, fitted rates, saved settings, email triggers and source inventory are unchanged. Confirmed plans still suppress the overdue display.
+
+All 76 JavaScript checks passed, including buffer/selection stability, hover, restock projections and the new cases. The regression failed on 1.7.1 by choosing a point 13 days earlier for a wholly overdue 30-day history. It now selects the 30-day history start. Tests also cover 90-day history, above-threshold recorded and reconstructed points, an earlier calculated crossing, partial history, consistent SVG shading width/marker/date/count, and leaving the underlying projection intact. Backend suites were not repeated for this display-only change; the prior full minimum-version refund-query limitation remains documented above.
+
+Browser verification: Everyday Tote with 3 months selected shaded the full July 30–Today history. Its marker/tooltip and Reorder fact used July 30, 2026; the badge counted 89 elapsed days from that boundary. Year selected retained the normal September 6 crossing and partial-history shading because earlier stock was above the threshold. Returning to 3 months restored the July 30 boundary. Real stock stayed 240, the saved reorder value stayed 90, and browser warning/error logs were empty. Screenshot: `.local/always-overdue-start.png`. The rebuilt 1.7.2 ZIP passed integrity and exact-source checks (12 production files, no README/fixtures).

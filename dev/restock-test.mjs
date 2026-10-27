@@ -55,6 +55,23 @@ p.planning.on_order = true; assert.equal(h.overdueInfo(p, now), null);
 p.planning.on_order = false;
 passed('Overdue intervals use the projected reorder crossing and disappear for ordered stock');
 
+const alwaysLow = { start: now - 30 * day, today: now, reconstructed: [], recorded: [{ time: now - 30 * day, stock: 80 }, { time: now - 15 * day, stock: 60 }, { time: now, stock: 40 }] };
+overdue = h.overdueInfo(p, now, alwaysLow);
+assert.equal(overdue.time, alwaysLow.start); assert.equal(overdue.label, '30 days overdue');
+assert.equal(overdue.from_start, true);
+const priorHigh = { ...alwaysLow, recorded: [{ time: alwaysLow.start, stock: 150 }, ...alwaysLow.recorded.slice(1)] };
+assert.equal(h.overdueInfo(p, now, priorHigh).time, now - 13 * day);
+const oldCrossing = h.overdueInfo({ ...p, reorder_in: -150 }, now, priorHigh);
+assert.equal(oldCrossing.time, priorHigh.start); assert.equal(oldCrossing.label, '30 days overdue');
+const wider = { ...alwaysLow, start: now - 90 * day, reconstructed: [{ time: now - 90 * day, stock: 100 }] };
+assert.equal(h.overdueInfo(p, now, wider).label, '90 days overdue');
+const oldHigh = { ...wider, reconstructed: [{ time: wider.start, stock: 200 }] };
+assert.equal(h.overdueInfo(p, now, oldHigh).time, now - 13 * day);
+assert.equal(h.overdueInfo(p, now, { ...alwaysLow, recorded: alwaysLow.recorded.slice(1) }).time, now - 13 * day);
+assert.equal(p.reorder_in, -13);
+passed('An entirely overdue history uses the graph start for its date and duration, including period changes');
+h.state.detail.stock_history.recorded[0].stock = 200;
+
 h.state.planningOpen = true;
 h.state.planningDraft = { quantity: 400, arrival: '2026-11-03', placed_at: now };
 assert.equal(h.restockProjection(p).confirmed, false);
@@ -70,6 +87,19 @@ assert.match(host.innerHTML, /vpa-overdue-period/); assert.match(host.innerHTML,
 assert.match(host.innerHTML, /vpa-restock-draft/); assert.match(host.innerHTML, /stroke="#8cbfe8"/);
 assert.match(host.innerHTML, /vpa-arrival-marker/); assert.match(host.innerHTML, /vpa-planned-stockout-marker/);
 passed('The preview draws light-blue dotted stock, arrival and stock-out markers alongside the overdue interval');
+
+const originalHistory = h.state.detail.stock_history;
+h.state.detail.stock_history = { ...originalHistory, recorded: [{ time: originalHistory.start, stock: 80 }, { time: now, stock: 40 }] };
+host.dataset.renderKey = ''; h.drawChart(host);
+const band = host.innerHTML.match(/class="vpa-overdue-period" x="([^"]+)" y="[^"]+" width="([^"]+)"/);
+assert.equal(Number(band[1]), 52);
+const expectedWidth = (now - originalHistory.start) / (now + h.chartHorizon(p) * day - originalHistory.start) * (800 - 52 - 16);
+assert.ok(Math.abs(Number(band[2]) - expectedWidth) < 0.000001);
+assert.match(host.innerHTML, /class="vpa-chart-target vpa-overdue-marker"[^>]*aria-label="90 days overdue; reorder date Jul 29, 2026, beginning of displayed history"/);
+assert.match(h.detailView(), /<dt>Reorder<\/dt><dd>Jul 29, 2026<\/dd>/);
+assert.equal(p.reorder_in, -13);
+h.state.detail.stock_history = originalHistory;
+passed('The full-history band, marker tooltip, day count and Reorder date all use the same graph start');
 
 h.state.planningOpen = false; h.state.planningDraft = null;
 p.planning = { ...p.planning, quantity: 400, confirmed: true, on_order: true, arrival: '2026-11-03', projection: h.buildRestockProjection(40, 5, 400, now, now + 7 * day) };

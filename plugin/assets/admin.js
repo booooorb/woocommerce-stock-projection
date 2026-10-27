@@ -222,6 +222,7 @@
     }
     const p = d.product, history = d.stock_history;
     const reordered = p.reorder_in !== null && p.reorder_in <= 0;
+    const overdue = overdueInfo(p, history.today, history);
     const reconstructed = history.reconstructed.length > 0;
     const rows = [...history.reconstructed.map(point => ({ ...point, source: 'Estimated from orders' })), ...history.recorded.map(point => ({ ...point, source: 'Recorded' }))];
     const note = reconstructed ? `History before ${moment(history.recorded_from)} is estimated from orders, not recorded stock. Earlier restocks are unknown.` : history.recorded_from > history.start ? 'Stock recording started within this period. Earlier levels were not recorded.' : '';
@@ -231,7 +232,7 @@
       <div id="vpa-graph" class="vpa-graph" data-product="${p.id}" data-period="${d.period}"></div>
       <div class="vpa-chart-caption"><div class="vpa-legend"><span><i class="vpa-line-key"></i> Stock history</span><span><i class="vpa-line-key vpa-dashed-key"></i> Projection</span><span><i class="vpa-line-key vpa-reorder-key"></i> Reorder level</span><span id="vpa-restock-legend">${restockProjection(p) ? '<i class="vpa-line-key vpa-restock-key"></i> Restock' : ''}</span></div></div><div id="vpa-restock-summary">${restockSummary(p)}</div>
       ${note ? `<p class="vpa-history-note">${esc(note)}</p>` : ''}
-      <dl class="vpa-inline-facts"><div><dt>Depletion</dt><dd>${rate(p.rate)} / day</dd></div><div><dt>Days left</dt><dd>${p.days_remaining === null ? '—' : number(p.days_remaining, 1)}</dd></div><div class="${reordered && !p.planning.on_order ? 'vpa-fact-overdue' : ''}"><dt>Reorder</dt><dd>${p.planning.on_order ? 'Ordered' : date(p.reorder_date)}</dd></div><div><dt>Current stock-out</dt><dd>${p.stock !== null && p.stock <= 0 ? 'Out now' : date(p.stockout_date)}</dd></div></dl>
+      <dl class="vpa-inline-facts"><div><dt>Depletion</dt><dd>${rate(p.rate)} / day</dd></div><div><dt>Days left</dt><dd>${p.days_remaining === null ? '—' : number(p.days_remaining, 1)}</dd></div><div class="${reordered && !p.planning.on_order ? 'vpa-fact-overdue' : ''}"><dt>Reorder</dt><dd>${p.planning.on_order ? 'Ordered' : overdue ? date(offsetDate(0, overdue.time)) : date(p.reorder_date)}</dd></div><div><dt>Current stock-out</dt><dd>${p.stock !== null && p.stock <= 0 ? 'Out now' : date(p.stockout_date)}</dd></div></dl>
       <div class="vpa-detail-actions"><details class="vpa-chart-data"><summary>History data & model</summary><p>${p.stock === null ? 'Inventory quantities are required to calculate a stock projection.' : `<code>Stock(t) = ${number(p.stock, 2)} − ${rate(p.rate)}t</code>, where t is days from today.`} Depletion uses ${p.rate_source === 'stock_changes' ? `a linear fit to recorded stock decreases over ${number(p.rate_history_days || d.window.days)} days; incoming restocks do not count as depletion` : 'a linear fit to order-derived outflow until stock recording covers the full selected period'}.${p.shared_stock ? ` This includes all variations sharing inventory with ${esc(p.stock_owner_name)}.` : ''} Future stock is floored at zero; existing negative stock remains visible as a deficit. Incoming deliveries are reflected after stock quantities are updated.</p><p>Reorder ${number(p.planning.reorder_days)} days before projected stockout. Reorder level = ${rate(p.rate)} units/day × ${number(p.planning.reorder_days)} days = ${number(p.reorder_point, 2)} units.${p.planning.on_order ? ` Expected delivery: ${date(p.planning.arrival)}.` : ''} Historical reconstruction assumes no unknown earlier replenishments or adjustments. Store timezone: ${esc(cfg.timezone || 'UTC')}.</p><div class="vpa-scroll"><table><caption>Stock observations; long histories preserve first, lowest, highest and last levels per time interval.</caption><thead><tr><th>Time</th><th>Stock</th><th>Source</th></tr></thead><tbody>${rows.map(point => `<tr><td>${esc(moment(point.time))}</td><td>${number(point.stock, 2)}</td><td>${point.source}</td></tr>`).join('')}</tbody></table></div></details></div>
       </div></section>`;
   }
@@ -374,10 +375,16 @@
     return { current, current_end: end, restock: plan ? restockPoints(plan, now, last) : [] };
   }
 
-  function overdueInfo(p, now) {
+  function overdueInfo(p, now, history = null) {
     if (p.planning.on_order || p.stock === null || p.rate <= 0 || !Number.isFinite(p.reorder_in) || p.reorder_in >= 0) return null;
-    const days = -p.reorder_in, whole = Math.floor(days);
-    return { time: now + p.reorder_in * 86400, stock: p.reorder_point, label: whole < 1 ? 'Under 1 day overdue' : `${number(whole)} ${whole === 1 ? 'day' : 'days'} overdue` };
+    let time = now + p.reorder_in * 86400, fromStart = false;
+    if (history && Number.isFinite(history.start) && history.start <= now) {
+      const visible = [...history.reconstructed, ...history.recorded].filter(point => point.time >= history.start && point.time <= now);
+      const throughout = visible.some(point => point.time === history.start) && visible.every(point => point.stock <= p.reorder_point + 0.00001);
+      if (time < history.start || throughout) { time = history.start; fromStart = true; }
+    }
+    const whole = Math.floor((now - time) / 86400);
+    return { time, stock: p.reorder_point, from_start: fromStart, label: whole < 1 ? 'Under 1 day overdue' : `${number(whole)} ${whole === 1 ? 'day' : 'days'} overdue` };
   }
 
   function drawChart(host) {
@@ -404,7 +411,7 @@
     closeHistoryHover();
     const pad = { l: width < 480 ? 40 : 52, r: 16, t: 38, b: 32 }, w = width - pad.l - pad.r, h = height - pad.t - pad.b;
     const now = history.today, first = history.start, last = now + horizon * 86400;
-    const projections = projectionPoints(p, plan, now, last), planned = projections.restock, overdue = overdueInfo(p, now);
+    const projections = projectionPoints(p, plan, now, last), planned = projections.restock, overdue = overdueInfo(p, now, history);
     const values = [...history.recorded, ...history.reconstructed, ...planned].map(point => point.stock).concat([0, p.stock, p.reorder_point]);
     const rawMin = Math.min(0, ...values), rawMax = Math.max(1, ...values);
     const tickStep = niceStep((rawMax - rawMin) / 4);
@@ -465,8 +472,9 @@
     }
     if (overdue) {
       const markerTime = Math.max(first, overdue.time), markerX = x(markerTime), markerY = y(overdue.stock);
+      const overdueDate = date(offsetDate(0, overdue.time));
       const labelWidth = Math.min(w - 8, overdue.label.length * 6 + 16), labelX = Math.max(pad.l + 4, Math.min(width - pad.r - labelWidth - 4, markerX - labelWidth / 2)), labelY = markerY < pad.t + 34 ? markerY + 12 : markerY - 30;
-      svg += `<g class="vpa-chart-target vpa-overdue-marker" tabindex="0" role="img" aria-label="${esc(`${overdue.label}; projected reorder date ${date(offsetDate(p.reorder_in, now))}${overdue.time < first ? ', before the displayed history' : ''}`)}"><circle cx="${markerX}" cy="${markerY}" r="12" fill="transparent"/><circle class="vpa-marker-dot" cx="${markerX}" cy="${markerY}" r="5" fill="#b7473b" stroke="white" stroke-width="2"/>${tooltip(date(offsetDate(p.reorder_in, now)), markerX, markerY)}<g class="vpa-overdue-badge" pointer-events="none"><rect x="${labelX}" y="${labelY}" width="${labelWidth}" height="22" rx="4" fill="#fff1ef" stroke="#dfb0a9"/><text x="${labelX + labelWidth / 2}" y="${labelY + 15}" text-anchor="middle" class="vpa-svg-label vpa-svg-overdue">${esc(overdue.label)}</text></g></g>`;
+      svg += `<g class="vpa-chart-target vpa-overdue-marker" tabindex="0" role="img" aria-label="${esc(`${overdue.label}; reorder date ${overdueDate}${overdue.from_start ? ', beginning of displayed history' : ''}`)}"><circle cx="${markerX}" cy="${markerY}" r="12" fill="transparent"/><circle class="vpa-marker-dot" cx="${markerX}" cy="${markerY}" r="5" fill="#b7473b" stroke="white" stroke-width="2"/>${tooltip(overdueDate, markerX, markerY)}<g class="vpa-overdue-badge" pointer-events="none"><rect x="${labelX}" y="${labelY}" width="${labelWidth}" height="22" rx="4" fill="#fff1ef" stroke="#dfb0a9"/><text x="${labelX + labelWidth / 2}" y="${labelY + 15}" text-anchor="middle" class="vpa-svg-label vpa-svg-overdue">${esc(overdue.label)}</text></g></g>`;
     }
     if (stockoutVisible) {
       svg += pointMarker(`vpa-stockout-marker${p.planning.on_order ? ' vpa-stockout-acknowledged' : ''}${samePoint ? ' vpa-reorder-marker' : ''}`, depletionTime, 0, `${samePoint ? 'Reorder and stock-out' : 'Stock-out'} on ${date(offsetDate(p.days_remaining, now))}`, true);
