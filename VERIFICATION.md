@@ -1,10 +1,10 @@
-# Verification: VeryShop Product Analysis 1.7.2
+# Verification: VeryShop Product Analysis 1.7.3
 
 **Story:** An administrator views inventory history and depletion on a large stock graph, distinguishes Today from future projection, and searches or pages through products in a sidebar while keeping the selected graph visible. WooCommerce stock hooks record deductions and replenishments; authenticated REST endpoints return history and the fitted inventory function. A numeric field above the graph sets N days before projected stockout; the saved global value drives the graph threshold, reorder dates, statuses, and email checks.
 
 ## Integration results
 
-**Version 1.7.2: all 76 JavaScript assertions passed**, including two new overdue-boundary regressions. Backend logic and write paths did not change; the backend integration, compatibility and safety suites were not rerun for this UI update.
+**Version 1.7.3: all 77 JavaScript assertions passed**, including the stock-out arrival default, saved/custom dates, store timezone, no-forecast and already-depleted cases. Backend logic and write paths did not change; the backend integration, compatibility and safety suites were not rerun for this UI update.
 
 **Prior version 1.7.1: 574 assertions across passing suites — 306 current WordPress integration checks, 74 JavaScript checks, 54 minimum-version stock-link checks, and 140 preservation assertions.** Current integration runtime is WordPress 7.1.3 / WooCommerce 11.2.1 / PHP 8.3.33, with 153 checks each for HPOS and legacy storage. The focused order-link suite passed 27 checks in each storage mode on WordPress 6.6.10 / WooCommerce 9.0.0 / PHP 8.0.30. The four preservation profiles passed 35 checks each.
 
@@ -209,3 +209,12 @@ This is a display rule for the requested edge case, not proof of the actual firs
 All 76 JavaScript checks passed, including buffer/selection stability, hover, restock projections and the new cases. The regression failed on 1.7.1 by choosing a point 13 days earlier for a wholly overdue 30-day history. It now selects the 30-day history start. Tests also cover 90-day history, above-threshold recorded and reconstructed points, an earlier calculated crossing, partial history, consistent SVG shading width/marker/date/count, and leaving the underlying projection intact. Backend suites were not repeated for this display-only change; the prior full minimum-version refund-query limitation remains documented above.
 
 Browser verification: Everyday Tote with 3 months selected shaded the full July 30–Today history. Its marker/tooltip and Reorder fact used July 30, 2026; the badge counted 89 elapsed days from that boundary. Year selected retained the normal September 6 crossing and partial-history shading because earlier stock was above the threshold. Returning to 3 months restored the July 30 boundary. Real stock stayed 240, the saved reorder value stayed 90, and browser warning/error logs were empty. Screenshot: `.local/always-overdue-start.png`. The rebuilt 1.7.2 ZIP passed integrity and exact-source checks (12 production files, no README/fixtures).
+
+
+## Default arrival date 1.7.3
+
+Opening Restock Planning now fills a new plan's Arrival with the selected graph's projected stock-out date. The date stays editable and the draft survives normal form rendering. Existing saved arrival dates take precedence. Already depleted stock defaults to Today; a product without a depletion forecast does not receive a fabricated date. Dates use the store timezone. Opening the form still performs no planning save, does not confirm an order and does not suppress warnings.
+
+All 77 JavaScript assertions passed. The new controller regression reproduced the previous blank Arrival, verifies the rendered date field and no network writes on opening, and covers saved/custom arrivals, missing forecasts, depleted stock and an offset-timezone date rollover. No backend logic, data writes, forecast math or email behavior changed; the backend/safety suites were not repeated. Prior platform limits above remain recorded.
+
+Browser verification: opening a new Everyday Tote plan automatically filled Arrival with `2026-11-27`, matching the displayed Current stock-out of November 27, 2026. The field remained editable, quantity stayed blank, the overdue warning remained visible, and real stock stayed 240. No order was confirmed or plan saved. Browser warning/error logs were empty. Screenshot: `.local/restock-default-stockout-date.png`. The rebuilt 1.7.3 ZIP passed integrity and exact-source checks (12 production files, no README/development fixtures); SHA-256 `e156093e8aecbc3de5cd193ab1592e8d4b7b9146f2fd76aef6f9d600d3c83bc9`.

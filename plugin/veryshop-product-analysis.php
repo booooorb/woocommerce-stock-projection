@@ -2,7 +2,7 @@
 /**
  * Plugin Name: VeryShop Product Analysis
  * Description: Stock history, depletion projections, replenishment planning, and product navigation for WooCommerce.
- * Version: 1.7.2
+ * Version: 1.7.3
  * Requires at least: 6.6
  * Requires PHP: 8.0
  * Requires Plugins: woocommerce
@@ -14,7 +14,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'VPA_VERSION', '1.7.2' );
+define( 'VPA_VERSION', '1.7.3' );
 define( 'VPA_FILE', __FILE__ );
 
 require_once __DIR__ . '/includes/class-model.php';

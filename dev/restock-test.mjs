@@ -118,5 +118,27 @@ const docked = h.historyPopoverPosition(278, 260, 262, 160, 130, 120);
 assert.ok(docked.top > 260);
 passed('Order details leave a cursor gap on desktop and dock below narrow plots');
 
+const form = dashboard(); form.connection.saveData = true;
+form.state.selected = 1; form.state.detail = form.detail(1);
+const fp = form.state.detail.product;
+fp.stockout_date = '2026-11-16'; fp.days_remaining = 20;
+const openPlan = target => target.emit('root', 'click', { target: { closest: selector => selector === 'button' ? { dataset: { action: 'open-planning' } } : null } });
+await openPlan(form);
+assert.equal(form.state.planningDraft.arrival, '2026-11-16');
+assert.match(form.planningForm(), /name="arrival"[^>]*value="2026-11-16"/);
+assert.equal(form.calls.length, 0); assert.equal(fp.planning.on_order, false);
+form.state.planningDraft.arrival = '2026-11-12';
+assert.match(form.planningForm(), /name="arrival"[^>]*value="2026-11-12"/);
+fp.planning.arrival = '2026-11-09'; await openPlan(form);
+assert.equal(form.state.planningDraft.arrival, '2026-11-09');
+fp.planning.arrival = ''; fp.stockout_date = null; fp.days_remaining = null;
+await openPlan(form); assert.equal(form.state.planningDraft.arrival, '');
+fp.stock = 0; await openPlan(form); assert.equal(form.state.planningDraft.arrival, '2026-10-27');
+const timezoneForm = dashboard({ timezone: '+05:30' }); timezoneForm.connection.saveData = true;
+timezoneForm.state.selected = 1; timezoneForm.state.detail = timezoneForm.detail(1);
+timezoneForm.state.detail.product.days_remaining = 0.9;
+await openPlan(timezoneForm); assert.equal(timezoneForm.state.planningDraft.arrival, '2026-10-28');
+passed('Opening a plan defaults to its stock-out date, preserves saved/custom arrivals and handles no forecast or depleted stock');
+
 const summary = `ALL RESTOCK TESTS PASSED (${checks} checks)\n`;
 await writeFile(new URL('../.local/restock-test-results.txt', import.meta.url), summary); console.log(summary);

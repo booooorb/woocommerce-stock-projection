@@ -275,10 +275,18 @@
       ${state.preview ? `<section class="vpa-panel vpa-email-preview"><div class="vpa-panel-heading"><div><div class="vpa-section-kicker">EMAIL PREVIEW · ${state.preview.products} PRODUCTS</div><h2>What the update will look like</h2></div>${button('close-preview', 'Close')}</div>${!state.preview.index_complete ? '<p class="vpa-attention">Order indexing is incomplete; this preview may be partial.</p>' : ''}<pre>${esc(state.preview.message)}</pre><p class="vpa-muted">Preview includes all products currently due. Automatic emails follow the saved frequency; Send email now starts a new interval.</p></section>` : ''}`;
   }
 
+  function planningArrival(p) {
+    if (!p) return '';
+    if (p.planning?.arrival) return p.planning.arrival;
+    if (p.stock === null) return '';
+    const now = Date.now() / 1000;
+    return p.stock <= 0 ? offsetDate(0, now) : p.stockout_date || offsetDate(p.days_remaining, now) || '';
+  }
+
   function planningForm() {
     const p = state.detail?.product;
     if (!p) return '';
-    const draft = state.planningDraft || { quantity: p.planning.quantity || '', arrival: p.planning.arrival || '' };
+    const draft = state.planningDraft || { quantity: p.planning.quantity || '', arrival: planningArrival(p) };
     return `<form id="vpa-planning-form" class="vpa-inline-planning" aria-label="Restock Planning"><label>Quantity<input name="quantity" type="number" min="0.0001" max="1000000000" step="0.0001" value="${esc(draft.quantity)}" required ${state.busy ? 'disabled' : ''}></label><label>Arrival<input name="arrival" type="date" min="${offsetDate(0, Date.now() / 1000)}" value="${esc(draft.arrival)}" required ${state.busy ? 'disabled' : ''}></label><div class="vpa-planning-actions"><button type="submit" class="vpa-button vpa-plan-button" ${state.busy ? 'disabled' : ''}>Confirm order</button>${button('close-planning', 'Cancel', false, state.busy)}${p.planning.on_order ? button('clear-planning', 'Clear plan', false, state.busy) : ''}</div></form>`;
   }
 
@@ -773,7 +781,7 @@
     if (action === 'open-planning') {
       pausePreload(); state.planningOpen = true;
       const p = state.detail?.product;
-      state.planningDraft = { quantity: p?.planning.quantity || '', arrival: p?.planning.arrival || '', placed_at: Math.floor(Date.now() / 1000) };
+      state.planningDraft = { quantity: p?.planning.quantity || '', arrival: planningArrival(p), placed_at: Math.floor(Date.now() / 1000) };
       render(); return;
     }
     if (action === 'close-planning') {
